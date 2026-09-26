@@ -1,13 +1,16 @@
 // Command gag renders your git projects as a garden in the terminal.
 //
-//	gag replay   time-lapse of one plant growing from its history (default)
-//	gag garden   a static garden of demo repos
+//	gag garden   your GitHub repos as a garden (default; -demo for fake ones)
+//	gag replay   time-lapse of one plant growing from its history
+//	gag version
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,11 +19,15 @@ import (
 	"golang.org/x/term"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
+	"github.com/RursusAeternum/GitAGarden/internal/github"
 	"github.com/RursusAeternum/GitAGarden/internal/replay"
 )
 
+// version is stamped at release time by GoReleaser.
+var version = "dev"
+
 func main() {
-	cmd, args := "replay", os.Args[1:]
+	cmd, args := "garden", os.Args[1:]
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
 	}
@@ -30,13 +37,74 @@ func main() {
 		err = runReplay(args)
 	case "garden":
 		err = runGarden(args)
+	case "version", "--version", "-v":
+		fmt.Println("gag", version)
 	default:
-		err = fmt.Errorf("unknown command %q (want replay or garden)", cmd)
+		err = fmt.Errorf("unknown command %q (want garden, replay or version)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gag:", err)
 		os.Exit(1)
 	}
+}
+
+func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
+
+// loadRepos returns synced repos: the named ones, or the limit most recently
+// pushed. If GitHub is unreachable it falls back to the local cache.
+func loadRepos(ctx context.Context, names []string, limit int, ttl time.Duration) ([]*github.Repo, error) {
+	store, err := github.OpenStore()
+	if err != nil {
+		return nil, err
+	}
+	c, err := github.NewClient()
+	if err != nil {
+		return nil, err
+	}
+
+	var metas []*github.Repo
+	if len(names) > 0 {
+		for _, n := range names {
+			m, err := c.LookupRepo(ctx, n)
+			if err != nil {
+				return cachedRepos(store, names, limit, err)
+			}
+			metas = append(metas, m)
+		}
+	} else if metas, err = c.ListRepos(ctx, limit); err != nil {
+		return cachedRepos(store, nil, limit, err)
+	}
+
+	repos, err := github.Sync(ctx, c, store, metas, ttl, logf)
+	if err != nil {
+		if len(repos) == 0 {
+			return nil, err
+		}
+		logf("some repos could not be refreshed; showing cached data")
+	}
+	return repos, nil
+}
+
+func cachedRepos(store *github.Store, names []string, limit int, cause error) ([]*github.Repo, error) {
+	var repos []*github.Repo
+	if len(names) > 0 {
+		for _, n := range names {
+			if r := store.Repos[n]; r != nil {
+				repos = append(repos, r)
+			}
+		}
+	} else {
+		for _, r := range store.Repos {
+			repos = append(repos, r)
+		}
+		sort.Slice(repos, func(i, j int) bool { return repos[i].PushedAt.After(repos[j].PushedAt) })
+		repos = repos[:min(limit, len(repos))]
+	}
+	if len(repos) == 0 {
+		return nil, cause
+	}
+	logf(fmt.Sprintf("offline (%v); showing cached data", cause))
+	return repos, nil
 }
 
 func historyStart(n int) time.Time {
@@ -55,30 +123,117 @@ func parseSpecies(s string) (garden.Species, error) {
 
 func runReplay(args []string) error {
 	fs := flag.NewFlagSet("replay", flag.ExitOnError)
-	name := fs.String("name", "gag-core", "repo name; seeds the plant's shape")
-	species := fs.String("species", "shrub", "shrub, cactus or rosette")
+	repo := fs.String("repo", "", "owner/name of a GitHub repo to replay (default: a fake history)")
+	name := fs.String("name", "gag-core", "fake repo name; seeds the plant's shape")
+	species := fs.String("species", "shrub", "shrub, cactus or rosette (default for -repo: from its language)")
 	n := fs.Int("events", 150, "number of fake events to generate")
 	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
 	finished := fs.Bool("finished", false, "show the project under glass")
+	ttl := fs.Duration("ttl", 15*time.Minute, "reuse cached GitHub data younger than this")
 	fs.Parse(args)
 
+	speciesSet := false
+	fs.Visit(func(f *flag.Flag) { speciesSet = speciesSet || f.Name == "species" })
 	sp, err := parseSpecies(*species)
 	if err != nil {
 		return err
 	}
-	gen := func(name string) []garden.Event {
-		return garden.FakeHistory(name, *n, historyStart(*n))
+	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished}
+
+	if *repo != "" {
+		repos, err := loadRepos(context.Background(), []string{*repo}, 1, *ttl)
+		if err != nil {
+			return err
+		}
+		r := repos[0]
+		cfg.Name, cfg.Events, cfg.End = r.Name(), r.Events(), time.Now()
+		cfg.Finished = cfg.Finished || r.Finished()
+		if !speciesSet {
+			cfg.Species = r.Species()
+		}
+		if len(cfg.Events) == 0 {
+			return fmt.Errorf("%s has no history to replay", *repo)
+		}
+	} else {
+		cfg.Regenerate = func(name string) []garden.Event {
+			return garden.FakeHistory(name, *n, historyStart(*n))
+		}
+		cfg.Events = cfg.Regenerate(*name)
 	}
-	m := replay.New(replay.Config{
-		Name:       *name,
-		Species:    sp,
-		Events:     gen(*name),
-		DecayDays:  *decay,
-		Finished:   *finished,
-		Regenerate: gen,
-	})
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(replay.New(cfg), tea.WithAltScreen()).Run()
 	return err
+}
+
+func runGarden(args []string) error {
+	fs := flag.NewFlagSet("garden", flag.ExitOnError)
+	demo := fs.Bool("demo", false, "show fake demo repos instead of GitHub")
+	limit := fs.Int("limit", 8, "how many recently pushed repos to show")
+	names := fs.String("repos", "", "comma-separated owner/name list to show instead")
+	ttl := fs.Duration("ttl", 15*time.Minute, "reuse cached GitHub data younger than this")
+	watch := fs.Duration("watch", 0, "redraw at this interval, e.g. 5m (for an always-on display)")
+	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
+	fs.Parse(args)
+
+	var list []string
+	for _, s := range strings.Split(*names, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			list = append(list, s)
+		}
+	}
+
+	render := func() (string, error) {
+		now := time.Now()
+		if *demo {
+			return layout(demoCards(now, *decay)), nil
+		}
+		repos, err := loadRepos(context.Background(), list, *limit, *ttl)
+		if err != nil {
+			return "", err
+		}
+		var cards []string
+		for _, r := range repos {
+			p := garden.Grow(r.Name(), r.Species(), r.Events())
+			cards = append(cards, garden.Card(p, garden.RenderOpts{Now: now, DecayDays: *decay, Finished: r.Finished()}))
+		}
+		return layout(cards), nil
+	}
+
+	if *watch <= 0 {
+		out, err := render()
+		fmt.Print(out)
+		return err
+	}
+	for {
+		out, err := render()
+		if err != nil {
+			logf(err.Error())
+		} else {
+			fmt.Print("\033[H\033[2J" + out)
+		}
+		time.Sleep(*watch)
+	}
+}
+
+// layout tiles cards into rows that fit the terminal.
+func layout(cards []string) string {
+	width := 100
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		width = w
+	}
+	perRow := max(1, (width+1)/(garden.CardWidth+1))
+	var b strings.Builder
+	for i := 0; i < len(cards); i += perRow {
+		row := cards[i:min(i+perRow, len(cards))]
+		spaced := make([]string, 0, 2*len(row))
+		for j, c := range row {
+			if j > 0 {
+				spaced = append(spaced, " ")
+			}
+			spaced = append(spaced, c)
+		}
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, spaced...) + "\n\n")
+	}
+	return b.String()
 }
 
 type demoRepo struct {
@@ -99,18 +254,7 @@ var demo = []demoRepo{
 	{"lsystem", "c", 60, 200, true},
 }
 
-func runGarden(args []string) error {
-	fs := flag.NewFlagSet("garden", flag.ExitOnError)
-	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
-	fs.Parse(args)
-
-	width := 100
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		width = w
-	}
-	perRow := max(1, (width+1)/(garden.CardWidth+1))
-
-	now := time.Now()
+func demoCards(now time.Time, decay float64) []string {
 	var cards []string
 	for _, r := range demo {
 		// Shift the fake history so its last event lands idleDays ago.
@@ -120,19 +264,7 @@ func runGarden(args []string) error {
 			events[i].At = events[i].At.Add(shift)
 		}
 		p := garden.Grow(r.name, garden.SpeciesFor(r.lang), events)
-		cards = append(cards, garden.Card(p, garden.RenderOpts{Now: now, DecayDays: *decay, Finished: r.finished}))
+		cards = append(cards, garden.Card(p, garden.RenderOpts{Now: now, DecayDays: decay, Finished: r.finished}))
 	}
-	for i := 0; i < len(cards); i += perRow {
-		row := cards[i:min(i+perRow, len(cards))]
-		spaced := make([]string, 0, 2*len(row))
-		for j, c := range row {
-			if j > 0 {
-				spaced = append(spaced, " ")
-			}
-			spaced = append(spaced, c)
-		}
-		fmt.Println(lipgloss.JoinHorizontal(lipgloss.Top, spaced...))
-		fmt.Println()
-	}
-	return nil
+	return cards
 }

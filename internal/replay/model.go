@@ -21,7 +21,8 @@ const (
 	logLines = 7
 )
 
-var speeds = []time.Duration{time.Hour, 3 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour, 48 * time.Hour}
+// Up to 8 days per tick, so a multi-year real history still plays in about a minute.
+var speeds = []time.Duration{time.Hour, 3 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour, 48 * time.Hour, 96 * time.Hour, 192 * time.Hour}
 
 type Config struct {
 	Name      string
@@ -29,6 +30,9 @@ type Config struct {
 	Events    []garden.Event
 	DecayDays float64
 	Finished  bool
+	// End is where the clock stops. Zero means tailDays after the last event,
+	// so a fake history always ends with a spell of neglect.
+	End time.Time
 	// Regenerate returns a fresh fake history, used by the "new history" key.
 	// nil disables the key.
 	Regenerate func(name string) []garden.Event
@@ -61,6 +65,9 @@ func (m *Model) reset() {
 	} else {
 		m.start = m.cfg.Events[0].At.Add(-time.Hour)
 		m.end = m.cfg.Events[len(m.cfg.Events)-1].At.Add(tailDays * 24 * time.Hour)
+		if !m.cfg.End.IsZero() && m.cfg.End.After(m.start) {
+			m.end = m.cfg.End
+		}
 	}
 	m.clock = m.start
 }
@@ -194,12 +201,19 @@ func (m Model) View() string {
 		}
 		e := events[j]
 		line := fmt.Sprintf("%s %s %s", e.Kind.Icon(), e.At.Format("Jan 02"), e.Note)
+		if r := []rune(line); len(r) > 42 {
+			line = string(r[:41]) + "…"
+		}
 		if i > 0 {
 			line = labelStyle.Render(line)
 		}
 		fmt.Fprintln(&b, line)
 	}
-	fmt.Fprint(&b, "\n"+labelStyle.Render("space play/pause  ←/→ step  + - speed\ns species  f glass  n new history\nr restart  G jump to end  q quit"))
+	keys := "space play/pause  ←/→ step  + - speed\ns species  f glass"
+	if m.cfg.Regenerate != nil {
+		keys += "  n new history"
+	}
+	fmt.Fprint(&b, "\n"+labelStyle.Render(keys+"\nr restart  G jump to end  q quit"))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, card, "  ", panelStyle.Render(b.String())) + "\n"
 }

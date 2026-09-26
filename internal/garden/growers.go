@@ -21,7 +21,7 @@ var AllSpecies = []Species{Shrub, Cactus, Rosette}
 // reads at a glance.
 func SpeciesFor(language string) Species {
 	switch strings.ToLower(language) {
-	case "rust", "c", "c++", "zig":
+	case "rust", "c", "c++", "c#", "java", "zig":
 		return Cactus
 	case "python", "javascript", "typescript", "ruby":
 		return Rosette
