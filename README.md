@@ -56,7 +56,8 @@ species · `f` toggle glass · `n` new history · `r` restart · `G` jump to end
 ```sh
 gag garden                                   # 8 most recently pushed repos you own
 gag garden -limit 12
-gag garden -repos owner/a,owner/b            # a fixed set
+gag garden -repos owner/a,owner/b            # a fixed set; any public repo works
+gag garden -user charmbracelet               # someone else's public garden (user or org)
 gag garden -watch 5m                         # always-on display, e.g. on a Pi
 gag garden -simulate 30d                     # preview: your garden after 30 days untouched (d, w, h)
 gag replay -repo owner/name                  # time-lapse of a real repo

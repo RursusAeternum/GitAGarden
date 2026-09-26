@@ -133,6 +133,28 @@ func (c *Client) ListRepos(ctx context.Context, limit int) ([]*Repo, error) {
 	return repos, nil
 }
 
+// ListOwnerRepos returns another user's or organization's public, non-fork
+// repos, most recently pushed first.
+func (c *Client) ListOwnerRepos(ctx context.Context, login string, limit int) ([]*Repo, error) {
+	q := `query($login:String!,$n:Int!){repositoryOwner(login:$login){repositories(first:$n,isFork:false,privacy:PUBLIC,orderBy:{field:PUSHED_AT,direction:DESC}){nodes{` + metaFields + `}}}}`
+	var out struct {
+		RepositoryOwner *struct {
+			Repositories struct{ Nodes []metaNode }
+		}
+	}
+	if err := c.query(ctx, q, map[string]any{"login": login, "n": min(limit, 100)}, &out); err != nil {
+		return nil, err
+	}
+	if out.RepositoryOwner == nil {
+		return nil, fmt.Errorf("no GitHub user or organization named %q", login)
+	}
+	var repos []*Repo
+	for _, n := range out.RepositoryOwner.Repositories.Nodes {
+		repos = append(repos, n.repo())
+	}
+	return repos, nil
+}
+
 // LookupRepo fetches metadata for one "owner/name" repo.
 func (c *Client) LookupRepo(ctx context.Context, nameWithOwner string) (*Repo, error) {
 	owner, name, ok := strings.Cut(nameWithOwner, "/")

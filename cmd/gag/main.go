@@ -51,8 +51,9 @@ func main() {
 func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
 
 // loadRepos returns synced repos: the named ones, or the limit most recently
-// pushed. If GitHub is unreachable it falls back to the local cache.
-func loadRepos(ctx context.Context, names []string, limit int, ttl time.Duration) ([]*github.Repo, error) {
+// pushed by owner (your own repos when owner is empty). If GitHub is
+// unreachable it falls back to the local cache.
+func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration) ([]*github.Repo, error) {
 	store, err := github.OpenStore()
 	if err != nil {
 		return nil, err
@@ -67,12 +68,19 @@ func loadRepos(ctx context.Context, names []string, limit int, ttl time.Duration
 		for _, n := range names {
 			m, err := c.LookupRepo(ctx, n)
 			if err != nil {
-				return cachedRepos(store, names, limit, err)
+				return cachedRepos(store, names, "", limit, err)
 			}
 			metas = append(metas, m)
 		}
-	} else if metas, err = c.ListRepos(ctx, limit); err != nil {
-		return cachedRepos(store, nil, limit, err)
+	} else {
+		if owner != "" {
+			metas, err = c.ListOwnerRepos(ctx, owner, limit)
+		} else {
+			metas, err = c.ListRepos(ctx, limit)
+		}
+		if err != nil {
+			return cachedRepos(store, nil, owner, limit, err)
+		}
 	}
 
 	repos, err := github.Sync(ctx, c, store, metas, ttl, logf)
@@ -85,7 +93,7 @@ func loadRepos(ctx context.Context, names []string, limit int, ttl time.Duration
 	return repos, nil
 }
 
-func cachedRepos(store *github.Store, names []string, limit int, cause error) ([]*github.Repo, error) {
+func cachedRepos(store *github.Store, names []string, owner string, limit int, cause error) ([]*github.Repo, error) {
 	var repos []*github.Repo
 	if len(names) > 0 {
 		for _, n := range names {
@@ -95,7 +103,9 @@ func cachedRepos(store *github.Store, names []string, limit int, cause error) ([
 		}
 	} else {
 		for _, r := range store.Repos {
-			repos = append(repos, r)
+			if owner == "" || strings.EqualFold(strings.SplitN(r.NameWithOwner, "/", 2)[0], owner) {
+				repos = append(repos, r)
+			}
 		}
 		sort.Slice(repos, func(i, j int) bool { return repos[i].PushedAt.After(repos[j].PushedAt) })
 		repos = repos[:min(limit, len(repos))]
@@ -141,7 +151,7 @@ func runReplay(args []string) error {
 	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished}
 
 	if *repo != "" {
-		repos, err := loadRepos(context.Background(), []string{*repo}, 1, *ttl)
+		repos, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl)
 		if err != nil {
 			return err
 		}
@@ -168,7 +178,8 @@ func runGarden(args []string) error {
 	fs := flag.NewFlagSet("garden", flag.ExitOnError)
 	demo := fs.Bool("demo", false, "show fake demo repos instead of GitHub")
 	limit := fs.Int("limit", 8, "how many recently pushed repos to show")
-	names := fs.String("repos", "", "comma-separated owner/name list to show instead")
+	names := fs.String("repos", "", "comma-separated owner/name list to show instead (any public repo works)")
+	user := fs.String("user", "", "show another GitHub user's or organization's public garden")
 	ttl := fs.Duration("ttl", 15*time.Minute, "reuse cached GitHub data younger than this")
 	watch := fs.Duration("watch", 0, "redraw at this interval, e.g. 5m (for an always-on display)")
 	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
@@ -200,7 +211,7 @@ func runGarden(args []string) error {
 		if *demo {
 			return header + layout(demoCards(now, at, *decay)), nil
 		}
-		repos, err := loadRepos(context.Background(), list, *limit, *ttl)
+		repos, err := loadRepos(context.Background(), list, *user, *limit, *ttl)
 		if err != nil {
 			return "", err
 		}
