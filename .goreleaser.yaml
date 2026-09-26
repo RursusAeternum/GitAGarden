@@ -1,0 +1,55 @@
+# Release pipeline: `git tag v0.1.0 && git push --tags` builds binaries for
+# macOS, Linux and Raspberry Pi, publishes a GitHub release and updates the
+# Homebrew tap (RursusAeternum/homebrew-tap).
+version: 2
+project_name: gag
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - main: ./cmd/gag
+    binary: gag
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64, arm]
+    goarm: ["6", "7"] # 6: Pi Zero/1, 7: 32-bit Raspberry Pi OS
+    ignore:
+      - goos: darwin
+        goarch: arm
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    # No version in the name, so .../releases/latest/download/<name> is a
+    # stable URL for install.sh.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+homebrew_casks:
+  - name: gag
+    homepage: https://github.com/RursusAeternum/GitAGarden
+    description: A terminal garden of your git projects
+    license: MIT
+    repository:
+      owner: RursusAeternum
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    hooks:
+      post:
+        # The binary isn't notarized; without this macOS refuses to run it.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gag"]
+          end
