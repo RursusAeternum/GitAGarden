@@ -172,7 +172,16 @@ func runGarden(args []string) error {
 	ttl := fs.Duration("ttl", 15*time.Minute, "reuse cached GitHub data younger than this")
 	watch := fs.Duration("watch", 0, "redraw at this interval, e.g. 5m (for an always-on display)")
 	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
+	simulate := fs.String("simulate", "", "fast-forward: show the garden as it would look after this long untouched, e.g. 30d, 2w, 36h")
 	fs.Parse(args)
+
+	var ahead time.Duration
+	if *simulate != "" {
+		var err error
+		if ahead, err = parseSpan(*simulate); err != nil || ahead < 0 {
+			return fmt.Errorf("-simulate %q: want a positive span like 30d, 2w or 36h", *simulate)
+		}
+	}
 
 	var list []string
 	for _, s := range strings.Split(*names, ",") {
@@ -183,8 +192,13 @@ func runGarden(args []string) error {
 
 	render := func() (string, error) {
 		now := time.Now()
+		at := now.Add(ahead) // the moment the garden is drawn at
+		header := ""
+		if ahead > 0 {
+			header = fmt.Sprintf("simulating %s ahead: %s, nothing tended\n\n", *simulate, at.Format("2006-01-02"))
+		}
 		if *demo {
-			return layout(demoCards(now, *decay)), nil
+			return header + layout(demoCards(now, at, *decay)), nil
 		}
 		repos, err := loadRepos(context.Background(), list, *limit, *ttl)
 		if err != nil {
@@ -193,9 +207,9 @@ func runGarden(args []string) error {
 		var cards []string
 		for _, r := range repos {
 			p := garden.Grow(r.Name(), r.Species(), r.Events())
-			cards = append(cards, garden.Card(p, garden.RenderOpts{Now: now, DecayDays: *decay, Finished: r.Finished()}))
+			cards = append(cards, garden.Card(p, garden.RenderOpts{Now: at, DecayDays: *decay, Finished: r.Finished()}))
 		}
-		return layout(cards), nil
+		return header + layout(cards), nil
 	}
 
 	if *watch <= 0 {
@@ -254,7 +268,9 @@ var demo = []demoRepo{
 	{"lsystem", "c", 60, 200, true},
 }
 
-func demoCards(now time.Time, decay float64) []string {
+// demoCards builds histories relative to now and draws them at at, which is
+// later than now when simulating.
+func demoCards(now, at time.Time, decay float64) []string {
 	var cards []string
 	for _, r := range demo {
 		// Shift the fake history so its last event lands idleDays ago.
@@ -264,7 +280,7 @@ func demoCards(now time.Time, decay float64) []string {
 			events[i].At = events[i].At.Add(shift)
 		}
 		p := garden.Grow(r.name, garden.SpeciesFor(r.lang), events)
-		cards = append(cards, garden.Card(p, garden.RenderOpts{Now: now, DecayDays: decay, Finished: r.finished}))
+		cards = append(cards, garden.Card(p, garden.RenderOpts{Now: at, DecayDays: decay, Finished: r.finished}))
 	}
 	return cards
 }

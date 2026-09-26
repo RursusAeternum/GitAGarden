@@ -58,6 +58,7 @@ gag garden                                   # 8 most recently pushed repos you 
 gag garden -limit 12
 gag garden -repos owner/a,owner/b            # a fixed set
 gag garden -watch 5m                         # always-on display, e.g. on a Pi
+gag garden -simulate 30d                     # preview: your garden after 30 days untouched (d, w, h)
 gag replay -repo owner/name                  # time-lapse of a real repo
 gag garden -demo                             # fake repos, no network
 ```
