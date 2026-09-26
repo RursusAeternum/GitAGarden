@@ -1,6 +1,7 @@
 # Release pipeline: `git tag v0.1.0 && git push --tags` builds binaries for
-# macOS, Linux and Raspberry Pi, publishes a GitHub release and updates the
-# Homebrew tap (RursusAeternum/homebrew-tap).
+# macOS, Linux and Raspberry Pi and publishes a GitHub release. The Homebrew
+# tap (RursusAeternum/homebrew-tap) picks new releases up on its own, so no
+# cross-repo token is needed here.
 version: 2
 project_name: gag
 
@@ -26,7 +27,7 @@ builds:
 archives:
   - formats: [tar.gz]
     # No version in the name, so .../releases/latest/download/<name> is a
-    # stable URL for install.sh.
+    # stable URL for install.sh and the tap.
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
 
 checksum:
@@ -36,20 +37,3 @@ changelog:
   sort: asc
   filters:
     exclude: ["^docs:", "^test:", "^chore:"]
-
-homebrew_casks:
-  - name: gag
-    homepage: https://github.com/RursusAeternum/GitAGarden
-    description: A terminal garden of your git projects
-    license: MIT
-    repository:
-      owner: RursusAeternum
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    hooks:
-      post:
-        # The binary isn't notarized; without this macOS refuses to run it.
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gag"]
-          end

@@ -27,15 +27,15 @@ Then run `gag`. It shows your garden, using your `gh` login or `GITHUB_TOKEN`.
 
 ### Releasing
 
-Push a tag and GitHub Actions does the rest: it builds with GoReleaser,
-publishes the release and updates the Homebrew tap.
+Push a tag and GitHub Actions builds with GoReleaser and publishes the
+release. [homebrew-tap](https://github.com/RursusAeternum/homebrew-tap)
+checks for new releases every hour and updates its cask on its own. To
+update it right away, run its workflow by hand:
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
+gh workflow run update-gag.yml -R RursusAeternum/homebrew-tap   # optional
 ```
-
-This needs the repo secret `HOMEBREW_TAP_TOKEN`: a fine-grained token with
-Contents read/write on `RursusAeternum/homebrew-tap`.
 
 ## Run
 
