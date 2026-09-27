@@ -78,7 +78,7 @@ type sourceState struct {
 // snapshot loads the repos and grows their plants for the live view. It
 // writes nothing to the terminal. Without a GitHub token it falls back to
 // the demo garden with a note saying why.
-func (s source) snapshot(ctx context.Context) (live.Snapshot, error) {
+func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (live.Snapshot, error) {
 	now := time.Now()
 	if s.demo {
 		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden"}, nil
@@ -87,7 +87,13 @@ func (s source) snapshot(ctx context.Context) (live.Snapshot, error) {
 	if live.Forced(ctx) {
 		ttl = 0 // the user pressed r: fetch, don't reuse the cache
 	}
-	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil)
+	var report func(done, total int, current string)
+	if progress != nil {
+		report = func(done, total int, current string) {
+			progress(live.Progress{Done: done, Total: total, Current: current})
+		}
+	}
+	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil, report)
 	if errors.Is(err, github.ErrNoToken) && (s.state == nil || !s.state.real) {
 		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login"}, nil
 	}
@@ -127,7 +133,11 @@ func printOnce(src source, ahead time.Duration, simulate string) error {
 			plots = append(plots, plotFor(r.Plant, r.Name, r.Finished, at, src.decay))
 		}
 	} else {
-		repos, offline, err := loadRepos(context.Background(), src.names, src.owner, src.limit, src.ttl, logf)
+		log, progress := logf, (func(done, total int, current string))(nil)
+		if term.IsTerminal(int(os.Stderr.Fd())) {
+			log, progress = nil, stderrProgress(os.Stderr) // a bar instead of "fetching …" lines
+		}
+		repos, offline, err := loadRepos(context.Background(), src.names, src.owner, src.limit, src.ttl, log, progress)
 		if err != nil {
 			return err
 		}

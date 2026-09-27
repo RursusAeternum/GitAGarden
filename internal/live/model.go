@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
 	"math"
 	"time"
@@ -29,7 +30,7 @@ var tickerStyle = lipgloss.NewStyle().
 
 // Config is what the live view needs from the outside world.
 type Config struct {
-	Load      func(ctx context.Context) (Snapshot, error)
+	Load      func(ctx context.Context, progress func(Progress)) (Snapshot, error)
 	Refresh   time.Duration // how often to reload; default 5m
 	DecayDays float64
 	Ahead     time.Duration // added to the wall clock, for -simulate
@@ -48,6 +49,7 @@ type Model struct {
 	gen        int   // bumps on every finished load; older refresh timers are ignored
 	ticker     bool
 	help       bool
+	progress   Progress // how far the current load has come
 }
 
 type (
@@ -56,7 +58,11 @@ type (
 		snap Snapshot
 		err  error
 	}
-	refreshMsg struct{ gen int }
+	refreshMsg  struct{ gen int }
+	progressMsg struct {
+		p  Progress
+		ch chan tea.Msg // where the rest of this load's messages arrive
+	}
 )
 
 func New(cfg Config) Model {
@@ -80,6 +86,9 @@ func Forced(ctx context.Context) bool {
 	return forced
 }
 
+// load runs Load in the background. Its progress updates and final result
+// arrive as messages on one channel: each progressMsg carries the channel so
+// Update can wait for the next message, and loadedMsg ends the stream.
 func (m Model) load(force bool) tea.Cmd {
 	load := m.cfg.Load
 	return func() tea.Msg {
@@ -87,9 +96,23 @@ func (m Model) load(force bool) tea.Cmd {
 		if force {
 			ctx = context.WithValue(ctx, forceKey{}, true)
 		}
-		s, err := load(ctx)
-		return loadedMsg{s, err}
+		ch := make(chan tea.Msg, 8)
+		go func() {
+			s, err := load(ctx, func(p Progress) {
+				select {
+				case ch <- progressMsg{p: p, ch: ch}:
+				default: // the screen is behind; a later update catches up
+				}
+			})
+			ch <- loadedMsg{s, err}
+		}()
+		return <-ch
 	}
+}
+
+// next waits for a load's next message.
+func next(ch chan tea.Msg) tea.Cmd {
+	return func() tea.Msg { return <-ch }
 }
 
 func (m Model) tick() tea.Cmd {
@@ -102,8 +125,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cols, m.rows = msg.Width, msg.Height
 	case tickMsg:
 		return m, m.tick()
+	case progressMsg:
+		m.progress = msg.p
+		return m, next(msg.ch)
 	case loadedMsg:
 		m.loading = false
+		m.progress = Progress{}
 		m.gen++
 		m.loadErr = msg.err
 		if msg.err == nil {
@@ -254,7 +281,7 @@ func (m Model) View() string {
 	case len(m.repos) == 0 && m.loadErr != nil:
 		return center(m.cols, m.rows, "couldn't load your garden: "+m.loadErr.Error()+"\npress r to retry")
 	case len(m.repos) == 0:
-		return center(m.cols, m.rows, "🌱 growing your garden…")
+		return m.loadingView()
 	}
 	at := m.now()
 	rows := m.gardenRows()
@@ -270,8 +297,26 @@ func (m Model) View() string {
 	return out
 }
 
+// loadingView is the first-load screen: a progress bar and the repo being
+// fetched, so a slow connection doesn't look like a hang.
+func (m Model) loadingView() string {
+	p := m.progress
+	text := "🌱 growing your garden\n\nfinding your repos…"
+	if p.Total > 0 {
+		width := max(4, min(30, m.cols-12))
+		text = fmt.Sprintf("🌱 growing your garden\n\n%s %d/%d", Bar(p.Done, p.Total, width), p.Done, p.Total)
+		if p.Current != "" {
+			text += "\nfetching " + p.Current
+		}
+	}
+	return center(m.cols, m.rows, text)
+}
+
 func (m Model) tickerLine(at time.Time) string {
 	status := Status(m.snap, m.cfg.Now(), m.loading, m.loadErr != nil)
+	if m.loading && m.progress.Total > 0 {
+		status = fmt.Sprintf("refreshing %s %d/%d", Bar(m.progress.Done, m.progress.Total, 8), m.progress.Done, m.progress.Total)
+	}
 	if m.help {
 		return fit(" "+helpLine, status+" ", m.cols)
 	}

@@ -52,8 +52,9 @@ func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
 // loadRepos returns synced repos: the named ones, or the limit most recently
 // pushed by owner (your own repos when owner is empty). If GitHub is
 // unreachable it falls back to the local cache and reports offline. log gets
-// progress lines ("fetching owner/repo"); nil discards them.
-func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration, log func(string)) ([]*github.Repo, bool, error) {
+// progress lines ("fetching owner/repo"); nil discards them. progress, if not
+// nil, hears (0, 0, "") while repos are listed, then Sync's per-repo progress.
+func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration, log func(string), progress func(done, total int, current string)) ([]*github.Repo, bool, error) {
 	store, err := github.OpenStore()
 	if err != nil {
 		return nil, false, err
@@ -61,6 +62,9 @@ func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl
 	c, err := github.NewClient()
 	if err != nil {
 		return nil, false, err
+	}
+	if progress != nil {
+		progress(0, 0, "") // listing repos; the total isn't known yet
 	}
 
 	var metas []*github.Repo
@@ -91,7 +95,7 @@ func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl
 		}
 	}
 
-	repos, err := github.Sync(ctx, c, store, metas, ttl, log)
+	repos, err := github.Sync(ctx, c, store, metas, ttl, log, progress)
 	if err != nil {
 		if len(repos) == 0 {
 			return nil, false, err
@@ -166,7 +170,7 @@ func runReplay(args []string) error {
 	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished, Profile: colorProfile()}
 
 	if *repo != "" {
-		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, logf)
+		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, logf, nil)
 		if err != nil {
 			return err
 		}

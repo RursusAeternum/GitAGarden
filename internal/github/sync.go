@@ -208,11 +208,18 @@ func (s *Store) Save() error {
 // Sync brings each repo's history up to date, skipping any fetched within
 // ttl. It saves after every repo so progress survives a slow or dropped
 // connection. Repos that fail to refresh fall back to their cached copy;
-// the returned error reports the first failure.
-func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Duration, log func(string)) ([]*Repo, error) {
+// the returned error reports the first failure. progress, if not nil, hears
+// (i, n, name) before each repo and (n, n, "") at the end.
+func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Duration, log func(string), progress func(done, total int, current string)) ([]*Repo, error) {
 	var out []*Repo
 	var firstErr error
-	for _, m := range metas {
+	report := func(done int, current string) {
+		if progress != nil {
+			progress(done, len(metas), current)
+		}
+	}
+	for i, m := range metas {
+		report(i, m.NameWithOwner)
 		cached := s.Repos[m.NameWithOwner]
 		if cached != nil && time.Since(cached.FetchedAt) < ttl {
 			m.Commits, m.PRs, m.Issues, m.Releases, m.FetchedAt = cached.Commits, cached.PRs, cached.Issues, cached.Releases, cached.FetchedAt
@@ -243,6 +250,7 @@ func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Dura
 		}
 		out = append(out, m)
 	}
+	report(len(metas), "")
 	return out, firstErr
 }
 

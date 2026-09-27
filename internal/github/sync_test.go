@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,7 @@ func TestSyncKeepsSignalsFromCache(t *testing.T) {
 	cached := &Repo{NameWithOwner: "me/x", FetchedAt: time.Now(), CI: "SUCCESS", Branch: "main",
 		OpenPRs: []OpenPR{{Number: 1, CreatedAt: time.Now()}}}
 	s := &Store{Repos: map[string]*Repo{"me/x": cached}}
-	repos, err := Sync(context.Background(), nil, s, []*Repo{{NameWithOwner: "me/x"}}, time.Hour, nil)
+	repos, err := Sync(context.Background(), nil, s, []*Repo{{NameWithOwner: "me/x"}}, time.Hour, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +95,21 @@ func TestOldCachesLoadWithoutSignals(t *testing.T) {
 	}
 	if r := s.Repos["me/x"]; r.CI != "" || r.Branch != "" || r.OpenPRs != nil {
 		t.Errorf("a v0.3 cache should load with no signals, got %+v", r)
+	}
+}
+
+func TestSyncReportsProgress(t *testing.T) {
+	s := &Store{Repos: map[string]*Repo{}}
+	var metas []*Repo
+	for _, n := range []string{"me/a", "me/b"} {
+		s.Repos[n] = &Repo{NameWithOwner: n, FetchedAt: time.Now()}
+		metas = append(metas, &Repo{NameWithOwner: n})
+	}
+	var got []string
+	Sync(context.Background(), nil, s, metas, time.Hour, nil, func(done, total int, current string) {
+		got = append(got, fmt.Sprintf("%d/%d %s", done, total, current))
+	})
+	if want := "0/2 me/a|1/2 me/b|2/2 "; strings.Join(got, "|") != want {
+		t.Errorf("progress = %q, want %q", strings.Join(got, "|"), want)
 	}
 }

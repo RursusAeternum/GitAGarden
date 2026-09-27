@@ -32,7 +32,7 @@ func garden3() Snapshot {
 
 func newModel(snap Snapshot, err error, now time.Time) Model {
 	return New(Config{
-		Load:      func(context.Context) (Snapshot, error) { return snap, err },
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return snap, err },
 		DecayDays: 45,
 		Profile:   pixel.TrueColor,
 		Now:       func() time.Time { return now },
@@ -44,10 +44,24 @@ func step(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	return next.(Model), cmd
 }
 
-// ready sizes the window and runs the first load.
+// ready sizes the window and runs the first load to completion.
 func ready(m Model, cols, rows int) Model {
 	m, _ = step(m, tea.WindowSizeMsg{Width: cols, Height: rows})
-	m, _ = step(m, m.load(false)())
+	return finishLoad(m, m.load(false))
+}
+
+// finishLoad runs a load command and feeds its messages back until the
+// load is done.
+func finishLoad(m Model, cmd tea.Cmd) Model {
+	for cmd != nil {
+		msg := cmd()
+		var next tea.Cmd
+		m, next = step(m, msg)
+		if _, done := msg.(loadedMsg); done {
+			return m
+		}
+		cmd = next
+	}
 	return m
 }
 
@@ -172,7 +186,7 @@ func TestFrameRate(t *testing.T) {
 func TestLongSleepKeepsDrawing(t *testing.T) {
 	now := t0
 	m := New(Config{
-		Load:      func(context.Context) (Snapshot, error) { return garden3(), nil },
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return garden3(), nil },
 		DecayDays: 45,
 		Now:       func() time.Time { return now },
 	})
@@ -222,7 +236,7 @@ func TestFirstLoadMayBeOffline(t *testing.T) {
 func TestManualRefreshForcesAFetch(t *testing.T) {
 	var forced []bool
 	m := New(Config{
-		Load: func(ctx context.Context) (Snapshot, error) {
+		Load: func(ctx context.Context, _ func(Progress)) (Snapshot, error) {
 			forced = append(forced, Forced(ctx))
 			return garden3(), nil
 		},
@@ -238,5 +252,48 @@ func TestManualRefreshForcesAFetch(t *testing.T) {
 	}
 	if len(forced) < 2 || forced[0] || !forced[1] {
 		t.Errorf("forced = %v, want the initial load unforced and r forced", forced)
+	}
+}
+
+func TestLoadStreamsProgressThenGarden(t *testing.T) {
+	m := New(Config{
+		Load: func(_ context.Context, progress func(Progress)) (Snapshot, error) {
+			progress(Progress{Done: 1, Total: 3, Current: "me/quiet"})
+			return garden3(), nil
+		},
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+	})
+	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	msg := m.load(false)()
+	pm, ok := msg.(progressMsg)
+	if !ok {
+		t.Fatalf("first message = %T, want a progress update", msg)
+	}
+	m, cmd := step(m, pm)
+	if v := visible(m.View()); !strings.Contains(v, "1/3") || !strings.Contains(v, "fetching me/quiet") {
+		t.Errorf("loading screen = %q", v)
+	}
+	m = finishLoad(m, cmd)
+	if len(m.repos) != 3 {
+		t.Errorf("garden not loaded after progress: %d plants", len(m.repos))
+	}
+}
+
+func TestLoadingScreenBeforeTheListIsKnown(t *testing.T) {
+	m := newModel(garden3(), nil, t0)
+	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	if v := visible(m.View()); !strings.Contains(v, "finding your repos") {
+		t.Errorf("view = %q", v)
+	}
+}
+
+func TestRefreshShowsProgressInTheTicker(t *testing.T) {
+	m := ready(newModel(garden3(), nil, t0), 100, 30)
+	m, _ = step(m, key("r"))
+	m, _ = step(m, progressMsg{p: Progress{Done: 2, Total: 8}, ch: make(chan tea.Msg)})
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "refreshing") || !strings.Contains(last, "2/8") {
+		t.Errorf("ticker = %q", last)
 	}
 }

@@ -14,7 +14,7 @@ func TestSnapshotFallsBackToDemoWithoutToken(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
-	snap, err := source{limit: 8, ttl: time.Minute, decay: 45}.snapshot(context.Background())
+	snap, err := source{limit: 8, ttl: time.Minute, decay: 45}.snapshot(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("a missing token should fall back to the demo, got error %v", err)
 	}
@@ -27,7 +27,7 @@ func TestSnapshotFallsBackToDemoWithoutToken(t *testing.T) {
 }
 
 func TestDemoSnapshot(t *testing.T) {
-	snap, err := source{demo: true, decay: 45}.snapshot(context.Background())
+	snap, err := source{demo: true, decay: 45}.snapshot(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestTokenLossAfterARealLoadIsAnError(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
 	src := source{limit: 8, ttl: time.Minute, decay: 45, state: &sourceState{real: true}}
-	if _, err := src.snapshot(context.Background()); !errors.Is(err, github.ErrNoToken) {
+	if _, err := src.snapshot(context.Background(), nil); !errors.Is(err, github.ErrNoToken) {
 		t.Errorf("err = %v; a token hiccup mid-session must not swap in the demo garden", err)
 	}
 }
