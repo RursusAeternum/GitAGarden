@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,7 @@ const (
 	swayPeriod       = 5 * time.Second
 	minCols, minRows = 24, 12
 	helpLine         = "q quit · r refresh · t ticker · ? help"
+	wakeGap          = time.Minute // a longer gap between ticks means the machine slept
 )
 
 var tickerStyle = lipgloss.NewStyle().
@@ -35,6 +37,7 @@ type Config struct {
 	Ahead     time.Duration // added to the wall clock, for -simulate
 	Profile   pixel.Profile
 	Now       func() time.Time // wall clock; default time.Now
+	Label     string           // shown before the ticker's status, e.g. "simulating 30d ahead"
 }
 
 type Model struct {
@@ -48,7 +51,8 @@ type Model struct {
 	gen        int   // bumps on every finished load; older refresh timers are ignored
 	ticker     bool
 	help       bool
-	progress   Progress // how far the current load has come
+	progress   Progress  // how far the current load has come
+	lastTick   time.Time // wall-clock time of the last frame, to notice sleep
 }
 
 type (
@@ -123,6 +127,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.cols, m.rows = msg.Width, msg.Height
 	case tickMsg:
+		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
+		woke := !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap
+		m.lastTick = now
+		if woke && !m.loading && len(m.repos) > 0 {
+			m.loading = true
+			return m, tea.Batch(m.tick(), m.load(false))
+		}
 		return m, m.tick()
 	case progressMsg:
 		m.progress = msg.p
@@ -308,9 +319,12 @@ func (m Model) loadingView() string {
 }
 
 func (m Model) tickerLine(at time.Time) string {
-	status := Status(m.snap, m.cfg.Now(), m.loading, m.loadErr != nil)
+	status := Status(m.snap, m.cfg.Now().Round(0), m.loading, m.loadErr != nil)
 	if m.loading && m.progress.Total > 0 {
 		status = fmt.Sprintf("refreshing %s %d/%d", Bar(m.progress.Done, m.progress.Total, 8), m.progress.Done, m.progress.Total)
+	}
+	if m.cfg.Label != "" {
+		status = strings.TrimSuffix(m.cfg.Label+" · "+status, " · ")
 	}
 	if m.help {
 		return fit(" "+helpLine, status+" ", m.cols)

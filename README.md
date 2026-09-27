@@ -83,9 +83,11 @@ gag garden -demo                             # fake repos, no network
 - **Finished** means the repo is archived, or has the topic `finished` or `gag-finished`.
 - **Species** comes from the primary language.
 - **Cache:** histories are stored in the OS cache dir (`~/.cache/gag` on Linux,
-  `~/Library/Caches/gag` on macOS). They refresh at most every `-ttl` (15m), and
-  commits are fetched incrementally. If GitHub is unreachable, the garden falls
-  back to the cached data.
+  `~/Library/Caches/gag` on macOS). Commits are fetched incrementally. `--once`
+  reuses data younger than `-ttl` (15m); the live view refetches on every
+  refresh and when you press `r`. If GitHub is unreachable, the garden falls
+  back to your cached repos.
+- **No token?** The live view shows the demo garden and tells you how to sign in.
 
 ## How plants grow
 
@@ -93,13 +95,20 @@ gag garden -demo                             # fake repos, no network
 events are replayed in order, so the same repo always grows the same plant.
 Nothing is stored between runs.
 
-| Event | Adds |
+| Signal | In the garden |
 |---|---|
 | push | a leaf, a stem segment, or a spine; once full, leaves get lusher |
-| merged PR | a flower |
+| merged PR | a flower, which goes to seed 30 days later |
 | release | fruit |
-| issue opened / closed | adds / removes a weed by the pot |
-| time since last tended | leaves yellow → brown → fall, flowers droop (applied at render) |
+| open PR | a pink bud (up to 5); after a week of waiting it droops and fades |
+| CI on the default branch | running: a small grey cloud · failing: a storm cloud with rain |
+| more commits in the last 14 days than the 14 before | bright new shoots |
+| open issues | weeds by the pot; 3+ new issues in a week bring a snail |
+| time since last tended | leaves yellow → brown → fall, flowers droop |
+
+The ticker at the bottom of the live view names what needs you, most urgent
+first: failing CI, PRs waiting over a week, wilting plants, other open PRs,
+then bursts of new issues.
 
 Species (`garden.SpeciesFor(language)`): **shrub** (branching, cbonsai-ish),
 **cactus** (column, arms, spines), **rosette** (low succulent with a flower stalk).
@@ -107,9 +116,13 @@ Species (`garden.SpeciesFor(language)`): **shrub** (branching, cbonsai-ish),
 ## Layout
 
 ```
-cmd/gag/            CLI: replay and garden subcommands
-internal/garden/    events, fake history, growers per species, renderer
-internal/replay/    Bubble Tea time-lapse UI
+cmd/gag/            CLI: the live garden, --once prints, replay
+internal/github/    GraphQL client, repo histories and signals, on-disk cache
+internal/garden/    events, growth per species, the plant painter
+internal/scene/     sky, clouds, weather, critters, pots, beds and layout
+internal/pixel/     RGB canvas encoded as half-block terminal text
+internal/live/      the live Bubble Tea view and its ticker
+internal/replay/    Bubble Tea time-lapse of one plant
 ```
 
 ## Raspberry Pi

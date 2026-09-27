@@ -54,7 +54,11 @@ func runGarden(args []string) error {
 	if !ttlSet {
 		src.ttl = *refresh / 2 // so each background refresh really fetches
 	}
-	m := live.New(live.Config{Load: src.snapshot, Refresh: *refresh, DecayDays: *decay, Ahead: ahead, Profile: colorProfile()})
+	label := ""
+	if ahead > 0 {
+		label = fmt.Sprintf("simulating %s ahead", *simulate)
+	}
+	m := live.New(live.Config{Load: src.snapshot, Refresh: *refresh, DecayDays: *decay, Ahead: ahead, Profile: colorProfile(), Label: label})
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }

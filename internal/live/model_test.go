@@ -306,3 +306,37 @@ func TestStormsRainAtFullFrameRate(t *testing.T) {
 		t.Error("rain falls at night too: want the fast frame rate")
 	}
 }
+
+func TestWakingUpRefreshes(t *testing.T) {
+	now := t0
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return garden3(), nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m = ready(m, 80, 24)
+	m, _ = step(m, tickMsg{}) // the first tick notes the time
+	now = now.Add(125 * time.Millisecond)
+	if m, _ = step(m, tickMsg{}); m.loading {
+		t.Fatal("an ordinary tick should not reload")
+	}
+	now = now.Add(9 * time.Hour) // the lid was closed overnight
+	m, _ = step(m, tickMsg{})
+	if !m.loading {
+		t.Error("waking up should start a refresh")
+	}
+}
+
+func TestLabelShowsInTheTicker(t *testing.T) {
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return garden3(), nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+		Label:     "simulating 30d ahead",
+	})
+	m = ready(m, 100, 30)
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "simulating 30d ahead") {
+		t.Errorf("ticker = %q", last)
+	}
+}
