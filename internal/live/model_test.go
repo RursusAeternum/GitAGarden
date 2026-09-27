@@ -297,3 +297,12 @@ func TestRefreshShowsProgressInTheTicker(t *testing.T) {
 		t.Errorf("ticker = %q", last)
 	}
 }
+
+func TestStormsRainAtFullFrameRate(t *testing.T) {
+	snap := garden3()
+	snap.Repos[2].CI = CIFailing
+	night := t0.Add(11 * time.Hour) // 23:00: no critters
+	if m := ready(newModel(snap, nil, night), 80, 24); m.frameInterval() != fastFrame {
+		t.Error("rain falls at night too: want the fast frame rate")
+	}
+}

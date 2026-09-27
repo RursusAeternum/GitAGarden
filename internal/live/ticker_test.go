@@ -112,3 +112,41 @@ func TestStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestItemsFollowTheAttentionOrder(t *testing.T) {
+	fresh := t0.Add(-time.Hour)
+	days := func(d int) time.Time { return t0.Add(-time.Duration(d) * 24 * time.Hour) }
+	ci := grow("ci", 20, 0, fresh)
+	ci.CI, ci.Branch = CIFailing, "main"
+	slow := grow("slow", 20, 0, fresh)
+	slow.PRs = []time.Time{days(9), days(2), days(12)}
+	quiet := grow("quiet", 20, 0, days(40))
+	newpr := grow("newpr", 20, 0, fresh)
+	newpr.PRs = []time.Time{days(1)}
+	buggy := grow("buggy", 20, 0, fresh)
+	buggy.NewIssues = 4
+	got := Items([]Repo{buggy, newpr, quiet, slow, ci}, t0, 45, 3)
+	want := []string{
+		"⚡ ci: CI failing on main",
+		"🌷 slow: 2 PRs waiting (12d)",
+		"🥀 quiet: 40d quiet",
+		"🌷 newpr: 1 PR open",
+		"🐌 buggy: 4 new issues this week",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("items = %+v", got)
+	}
+	for i, w := range want {
+		if g := got[i].Icon + " " + got[i].Text; g != w {
+			t.Errorf("item %d = %q, want %q", i, g, w)
+		}
+	}
+}
+
+func TestTickerIconsAreTwoCellsWide(t *testing.T) {
+	for _, icon := range []string{"⚡", "🌷", "🥀", "🐌", "🌱"} {
+		if w := runewidth.StringWidth(icon); w != 2 {
+			t.Errorf("%s is %d cells wide; ticker icons must be two-cell emoji", icon, w)
+		}
+	}
+}

@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
@@ -222,13 +221,11 @@ func (m Model) gardenRows() int {
 func (m Model) plots(at time.Time) []scene.Plot {
 	out := make([]scene.Plot, len(m.repos))
 	for i, r := range m.repos {
-		st := garden.Style{Health: 1} // under glass: full health, still air
-		if !r.Finished {
-			h := garden.Health(r.Plant, at, m.cfg.DecayDays)
-			st = garden.Style{Health: h, Sway: sway(r.Name, h, at)}
+		pl := Plot(r, at, m.cfg.DecayDays)
+		if !r.Finished { // still air under glass
+			pl.Style.Sway = sway(r.Name, pl.Style.Health, at)
 		}
-		out[i] = scene.Plot{Plant: r.Plant, Style: st, Finished: r.Finished,
-			Name: r.Name, Status: garden.Status(r.Plant, at, r.Finished)}
+		out[i] = pl
 	}
 	return out
 }
@@ -243,8 +240,8 @@ func sway(name string, health float64, at time.Time) float64 {
 	return 1.5 * health * math.Sin(2*math.Pi*float64(at.UnixMilli()%period)/float64(period)+phase)
 }
 
-// frameInterval is fast while critters fly or the camera slides (or is about
-// to), slow otherwise, so an idle garden costs little.
+// frameInterval is fast while critters fly, rain falls or the camera slides
+// (or is about to), slow otherwise, so an idle garden costs little.
 func (m Model) frameInterval() time.Duration {
 	if m.busy() {
 		return fastFrame
@@ -261,12 +258,10 @@ func (m Model) busy() bool {
 		return true
 	}
 	at := m.now()
-	if scene.Darkness(at) > 0.5 {
-		return false
-	}
+	day := scene.Darkness(at) <= 0.5
 	for _, pl := range m.plots(at) {
-		if scene.Flowering(pl) {
-			return true
+		if pl.Weather == scene.Storm || (day && scene.Flowering(pl)) {
+			return true // rain falls, or critters fly
 		}
 	}
 	return false

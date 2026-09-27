@@ -8,12 +8,27 @@ import (
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 )
 
-// Repo is one plant in the live garden.
+// Repo is one plant in the live garden, with its signals.
 type Repo struct {
-	Name     string
-	Plant    *garden.Plant
-	Finished bool
+	Name      string
+	Plant     *garden.Plant
+	Finished  bool
+	Branch    string      // default branch, for "CI failing on main"
+	CI        CI          // CI state of the default branch's latest commit
+	PRs       []time.Time // when each open, non-draft PR was opened
+	NewIssues int         // issues opened in the last 7 days
+	Rising    bool        // more commits in the last 14 days than in the 14 before
 }
+
+// CI is a repo's build state on its default branch.
+type CI int
+
+const (
+	CIUnknown CI = iota // no checks, or not fetched yet
+	CIPassing
+	CIPending
+	CIFailing
+)
 
 // Snapshot is one load of the garden's data.
 type Snapshot struct {
