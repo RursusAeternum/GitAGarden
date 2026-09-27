@@ -137,3 +137,38 @@ func TestCIFailureKeepsTheRestOfTheFetch(t *testing.T) {
 		t.Errorf("ci %q, open PRs %d; want unknown CI and the PR", r.CI, len(r.OpenPRs))
 	}
 }
+
+func TestListingReadsStarCounts(t *testing.T) {
+	c := fakeGitHub(t, func(q string) string {
+		if !strings.Contains(q, "stargazerCount") {
+			t.Errorf("the listing query should ask for stargazerCount: %s", q)
+		}
+		return `{"data":{"viewer":{"repositories":{"nodes":[
+			{"nameWithOwner":"me/a","isArchived":false,"pushedAt":"2026-09-01T00:00:00Z",
+			 "primaryLanguage":{"name":"Go"},"repositoryTopics":{"nodes":[]},"stargazerCount":42}]}}}}`
+	})
+	repos, err := c.ListRepos(context.Background(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || repos[0].Stars != 42 {
+		t.Errorf("repos = %+v, want me/a with 42 stars", repos)
+	}
+}
+
+func TestStarsSurviveTheCache(t *testing.T) {
+	data, err := json.Marshal(&Repo{NameWithOwner: "me/a", Stars: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back, old Repo
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"nameWithOwner":"me/a"}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	if back.Stars != 42 || old.Stars != 0 {
+		t.Errorf("stars after a cache round trip = %d, from an old cache = %d; want 42 and 0", back.Stars, old.Stars)
+	}
+}

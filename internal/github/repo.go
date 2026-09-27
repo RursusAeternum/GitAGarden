@@ -48,6 +48,7 @@ type Repo struct {
 	Archived      bool      `json:"archived"`
 	Topics        []string  `json:"topics"`
 	PushedAt      time.Time `json:"pushedAt"`
+	Stars         int       `json:"stars,omitempty"`
 	Commits       []Commit  `json:"commits"`
 	PRs           []PR      `json:"prs"`
 	Issues        []Issue   `json:"issues"`
@@ -102,12 +103,13 @@ func (r *Repo) Events() []garden.Event {
 	return ev
 }
 
-const metaFields = `nameWithOwner isArchived pushedAt primaryLanguage{name} repositoryTopics(first:20){nodes{topic{name}}}`
+const metaFields = `nameWithOwner isArchived pushedAt stargazerCount primaryLanguage{name} repositoryTopics(first:20){nodes{topic{name}}}`
 
 type metaNode struct {
 	NameWithOwner    string
 	IsArchived       bool
 	PushedAt         time.Time
+	StargazerCount   int
 	PrimaryLanguage  *struct{ Name string }
 	RepositoryTopics struct {
 		Nodes []struct{ Topic struct{ Name string } }
@@ -115,7 +117,7 @@ type metaNode struct {
 }
 
 func (m metaNode) repo() *Repo {
-	r := &Repo{NameWithOwner: m.NameWithOwner, Archived: m.IsArchived, PushedAt: m.PushedAt}
+	r := &Repo{NameWithOwner: m.NameWithOwner, Archived: m.IsArchived, PushedAt: m.PushedAt, Stars: m.StargazerCount}
 	if m.PrimaryLanguage != nil {
 		r.Language = m.PrimaryLanguage.Name
 	}
