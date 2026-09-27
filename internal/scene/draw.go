@@ -15,9 +15,10 @@ type View struct {
 	Now        time.Time // wall clock: sky, sun, clouds, glints
 	Pan        float64   // camera offset in plot columns when the garden overflows
 	Seed       int64
-	Motion     bool    // a live frame: glints on glass
-	Sky        SkyMode // what the night sky shows
-	StarTotal  int     // the garden's GitHub stars, for SkyStars
+	Motion     bool       // a live frame: glints on glass
+	Sky        SkyMode    // what the night sky shows
+	StarTotal  int        // the garden's GitHub stars, for SkyStars
+	Shooting   []Shooting // shooting stars, drawn while in flight
 }
 
 // Layout is how plots are arranged in a frame.
@@ -75,6 +76,9 @@ func Draw(v View) *pixel.Canvas {
 			drawSunMoon(c, v.Now, skyTop, oy+groundTop) // one sun for the whole garden
 		}
 		DrawClouds(c, v.Now, skyTop, oy+groundTop, v.Seed+int64(b))
+		if b == 0 {
+			drawShootingStars(c, v.Now, v.Shooting, skyTop, oy+groundTop)
+		}
 		DrawGround(c, oy+groundTop, oy+bedPx, v.Seed)
 		for _, s := range slots(lay, b, len(v.Plots), cols, v.Pan) {
 			pl := v.Plots[s.index]

@@ -2,6 +2,7 @@ package scene
 
 import (
 	"testing"
+	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
@@ -82,5 +83,88 @@ func TestStarModeShowsTheGardensStars(t *testing.T) {
 	forty := bright(v)
 	if none >= random || none >= forty {
 		t.Errorf("bright pixels: random sky %d, no stars %d, 40 stars %d", random, none, forty)
+	}
+}
+
+// shot draws one shooting star, age into its flight, on an empty 80×40 sky.
+func shot(age time.Duration) *pixel.Canvas {
+	c := pixel.New(80, 40)
+	now := at(23, 0)
+	drawShootingStars(c, now, []Shooting{{Start: now.Add(-age), Seed: 7}}, 0, 40)
+	return c
+}
+
+// rightmost is the rightmost painted column, or -1.
+func rightmost(c *pixel.Canvas) int {
+	for x := c.W - 1; x >= 0; x-- {
+		for y := 0; y < c.H; y++ {
+			if c.At(x, y) != (pixel.RGB{}) {
+				return x
+			}
+		}
+	}
+	return -1
+}
+
+func TestShootingStarFliesThenFades(t *testing.T) {
+	early, late := shot(300*time.Millisecond), shot(1200*time.Millisecond)
+	if painted(early) == 0 {
+		t.Fatal("no shooting star in flight")
+	}
+	if rightmost(late) <= rightmost(early) {
+		t.Error("a shooting star should move across the sky")
+	}
+	for _, age := range []time.Duration{-time.Second, ShootingFor, 2 * time.Second} {
+		if n := painted(shot(age)); n != 0 {
+			t.Errorf("%v into its flight it drew %d pixels", age, n)
+		}
+	}
+}
+
+func TestShootingStarsStayInTheSky(t *testing.T) {
+	now := at(23, 0)
+	for seed := int64(0); seed < 20; seed++ {
+		for age := time.Duration(0); age < ShootingFor; age += 100 * time.Millisecond {
+			c := pixel.New(240, 60)
+			drawShootingStars(c, now, []Shooting{{Start: now.Add(-age), Seed: seed}}, 0, 42)
+			for y := 42; y < c.H; y++ {
+				for x := 0; x < c.W; x++ {
+					if c.At(x, y) != (pixel.RGB{}) {
+						t.Fatalf("seed %d, %v in: drew below the sky at %d,%d", seed, age, x, y)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestDrawShowsShootingStars(t *testing.T) {
+	now := at(23, 0)
+	v := View{Cols: 3 * BedCols, Plots: manyPlots(3), Now: now, Seed: 1}
+	plain := Draw(v).Encode(pixel.TrueColor)
+	shown := 0
+	for seed := int64(1); seed <= 5; seed++ { // plants in front may hide one
+		v.Shooting = []Shooting{{Start: now.Add(-700 * time.Millisecond), Seed: seed}}
+		if Draw(v).Encode(pixel.TrueColor) != plain {
+			shown++
+		}
+	}
+	if shown == 0 {
+		t.Error("Draw showed none of the shooting stars in flight")
+	}
+	v.Shooting = []Shooting{{Start: now.Add(-2 * time.Second), Seed: 1}}
+	if Draw(v).Encode(pixel.TrueColor) != plain {
+		t.Error("a landed shooting star should leave no trace")
+	}
+}
+
+func TestShootingStarsStandOut(t *testing.T) {
+	for _, now := range []time.Time{at(12, 0), at(23, 30)} {
+		top, bottom := SkyAt(now)
+		for _, col := range []pixel.RGB{meteorHead, meteorTail} {
+			if dist(col, top) < 60 || dist(col, bottom) < 60 {
+				t.Errorf("shooting star colour %v blends into the %s sky", col, now.Format("15:04"))
+			}
+		}
 	}
 }

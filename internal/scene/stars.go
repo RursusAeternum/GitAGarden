@@ -2,6 +2,7 @@ package scene
 
 import (
 	"math"
+	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
@@ -48,5 +49,53 @@ func DrawStarSky(c *pixel.Canvas, y0, y1, total int, darkness float64) {
 		taken[[2]int{x, y}] = true
 		bright := 0.4 + 0.6*noise(starSeed, i, 3)
 		c.Blend(x, y, starColor, darkness*math.Min(1, bright+boost))
+	}
+}
+
+// ShootingFor is how long a shooting star takes to cross the sky.
+const ShootingFor = 1500 * time.Millisecond
+
+// Shooting is a shooting star that starts at Start; Seed picks its path.
+type Shooting struct {
+	Start time.Time
+	Seed  int64
+}
+
+var (
+	meteorHead = rgb(255, 250, 225)
+	meteorTail = rgb(255, 205, 120) // warm, so it shows against the pale day sky too
+)
+
+const meteorSlope = 0.35 // pixels down per pixel across
+
+// drawShootingStars draws the shooting stars in flight at t across pixel
+// rows [y0, y1): a bright head and a fading warm tail, sliding down and to
+// the right. Each starts in the top third of the sky and ends above y1, so
+// it never streaks into the plants.
+func drawShootingStars(c *pixel.Canvas, t time.Time, shots []Shooting, y0, y1 int) {
+	y0 = max(y0, 0) // a short window crops the top of the sky
+	if y1-y0 < 6 {
+		return
+	}
+	for _, s := range shots {
+		age := t.Sub(s.Start)
+		if age < 0 || age >= ShootingFor {
+			continue
+		}
+		f := float64(age) / float64(ShootingFor)
+		x0 := int(noise(s.Seed, 0, 1) * float64(c.W) * 0.6)
+		ys := y0 + int(noise(s.Seed, 0, 2)*float64((y1-y0)/3))
+		run := math.Min(float64(c.W)*0.4, float64(y1-1-ys)/meteorSlope)
+		for k := 0; k < 8; k++ { // the head, then its tail
+			d := f*run - float64(k)*1.5
+			if d < 0 {
+				break
+			}
+			col, a := meteorTail, 0.9*(1-float64(k)/8)
+			if k == 0 {
+				col, a = meteorHead, 1
+			}
+			c.Blend(x0+int(d), ys+int(d*meteorSlope), col, a)
+		}
 	}
 }
