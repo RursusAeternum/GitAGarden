@@ -63,3 +63,18 @@ func TestSteppingKeys(t *testing.T) {
 		t.Fatalf("regenerate: name=%q events=%d", m.cfg.Name, len(m.cfg.Events))
 	}
 }
+
+func TestReplaySkyIgnoresTheReplayClock(t *testing.T) {
+	// The replay clock races hours per frame; drawing the sky from it strobes
+	// day and night. The sky must come from Config.Now instead.
+	fixed := time.Date(2026, 6, 1, 12, 0, 0, 0, time.Local)
+	m := newTestModel()
+	m.cfg.Now = func() time.Time { return fixed }
+	m.seek(time.Date(2026, 1, 1, 0, 30, 0, 0, time.Local)) // replay clock at night
+	night := strings.SplitN(m.View(), "\n", 2)[0]
+	m.seek(time.Date(2026, 1, 1, 12, 30, 0, 0, time.Local)) // replay clock at noon
+	noon := strings.SplitN(m.View(), "\n", 2)[0]
+	if night != noon {
+		t.Error("sky changed with the replay clock")
+	}
+}

@@ -34,6 +34,9 @@ type Config struct {
 	Finished  bool
 	// Profile is the color depth for the plant drawing.
 	Profile pixel.Profile
+	// Now is the wall clock the sky is drawn at (default time.Now). The
+	// replay clock moves hours per frame and would strobe day and night.
+	Now func() time.Time
 	// End is where the clock stops. Zero means tailDays after the last event,
 	// so a fake history always ends with a spell of neglect.
 	End time.Time
@@ -179,7 +182,11 @@ func (m Model) View() string {
 	}
 	plot := scene.Plot{Plant: p, Style: garden.Style{Health: health}, Finished: m.cfg.Finished,
 		Name: m.cfg.Name, Status: garden.Status(p, m.clock, m.cfg.Finished)}
-	card := scene.Compose(scene.BedCols, []scene.Plot{plot}, m.clock, 1).Encode(m.cfg.Profile)
+	now := time.Now
+	if m.cfg.Now != nil {
+		now = m.cfg.Now
+	}
+	card := scene.Compose(scene.BedCols, []scene.Plot{plot}, now(), 1).Encode(m.cfg.Profile)
 
 	state := "▶ playing"
 	if !m.playing {

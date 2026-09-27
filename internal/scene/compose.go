@@ -51,6 +51,9 @@ func Compose(cols int, plots []Plot, t time.Time, seed int64) *pixel.Canvas {
 	for b := 0; b < beds; b++ {
 		oy := b * bedPx
 		DrawSky(c, t, oy, oy+groundTop, seed+int64(b))
+		if b == 0 {
+			drawSunMoon(c, t, oy, oy+groundTop) // one sun for the whole garden
+		}
 		DrawGround(c, oy+groundTop, oy+bedPx, seed)
 		lo := b * per
 		if lo >= len(plots) {

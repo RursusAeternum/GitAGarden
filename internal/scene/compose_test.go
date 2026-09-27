@@ -97,3 +97,24 @@ func TestLabelSanitizesAndTruncates(t *testing.T) {
 		t.Error("long label should end in …")
 	}
 }
+
+func TestOnlyTheTopBedHasASun(t *testing.T) {
+	c := Compose(BedCols, demoPlots()[:2], at(12, 0), 1) // 2 plots, 1 per row: 2 beds
+	suns := func(y0, y1 int) int {
+		n := 0
+		for y := y0; y < y1; y++ {
+			for x := 0; x < c.W; x++ {
+				if c.At(x, y) == sunColor {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	if suns(0, bedPx) == 0 {
+		t.Error("top bed has no sun at noon")
+	}
+	if n := suns(bedPx, 2*bedPx); n != 0 {
+		t.Errorf("second bed has %d sun pixels, want none", n)
+	}
+}
