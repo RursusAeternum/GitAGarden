@@ -40,41 +40,36 @@ var (
 // PerRow is how many plots fit side by side in cols terminal columns.
 func PerRow(cols int) int { return max(1, cols/BedCols) }
 
-// Compose draws the plots in beds under the sky at time t. The canvas is
-// exactly cols wide (plots that don't fit are clipped, never wrapped) and
-// holds one bed per PerRow(cols) plots.
+// Compose draws a static garden as tall as its beds need: every plot has a
+// place and nothing moves. Used for one-shot prints and replay.
 func Compose(cols int, plots []Plot, t time.Time, seed int64) *pixel.Canvas {
-	cols = max(cols, 1)
-	per := PerRow(cols)
-	beds := max(1, (len(plots)+per-1)/per)
-	c := pixel.New(cols, beds*bedPx)
-	for b := 0; b < beds; b++ {
-		oy := b * bedPx
-		DrawSky(c, t, oy, oy+groundTop, seed+int64(b))
-		if b == 0 {
-			drawSunMoon(c, t, oy, oy+groundTop) // one sun for the whole garden
-		}
-		DrawClouds(c, t, oy, oy+groundTop, seed+int64(b))
-		DrawGround(c, oy+groundTop, oy+bedPx, seed)
-		lo := b * per
-		if lo >= len(plots) {
-			continue
-		}
-		row := plots[lo:min(len(plots), lo+per)]
-		left := (cols - len(row)*BedCols) / 2
-		for i, pl := range row {
-			cx := left + i*BedCols + BedCols/2
-			DrawPot(c, cx, oy+potTop)
-			garden.Paint(c, pl.Plant, cx, oy+plantBaseY, pl.Style)
-			if pl.Finished {
-				DrawCloche(c, cx, oy+2, oy+potTop+PotH-1, BedCols-3)
-			}
-			labelRow := oy/2 + BedRows - 2
-			label(c, cx, labelRow, pl.Name, nameColor)
-			label(c, cx, labelRow+1, pl.Status, statusColor(pl))
+	return Draw(View{Cols: cols, Plots: plots, Now: t, Seed: seed})
+}
+
+// drawPlot draws one plot centered on column cx of the bed whose top is
+// pixel row oy.
+func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int) {
+	DrawPot(c, cx, oy+potTop)
+	garden.Paint(c, pl.Plant, cx, oy+plantBaseY, pl.Style)
+	if pl.Finished {
+		DrawCloche(c, cx, oy+2, oy+potTop+PotH-1, BedCols-3)
+		if v.Motion {
+			DrawGlint(c, v.Now, cx, oy+2, oy+potTop+PotH-1, BedCols-3, nameSeed(pl.Name))
 		}
 	}
-	return c
+	labelRow := oy/2 + BedRows - 2
+	label(c, cx, labelRow, pl.Name, nameColor)
+	label(c, cx, labelRow+1, pl.Status, statusColor(pl))
+}
+
+// nameSeed turns a plot name into a stable seed, so each cloche glints on
+// its own schedule.
+func nameSeed(name string) int64 {
+	var h int64
+	for _, r := range name {
+		h = h*31 + int64(r)
+	}
+	return h
 }
 
 func statusColor(pl Plot) pixel.RGB {
