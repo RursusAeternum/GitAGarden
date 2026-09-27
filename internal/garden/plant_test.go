@@ -140,3 +140,15 @@ func TestCactusGrowsThroughItsFlowers(t *testing.T) {
 		t.Errorf("flowers = %d, want the 1 flower kept", len(p.cellsOf(Flower)))
 	}
 }
+
+func TestFlowers(t *testing.T) {
+	if n := Grow("r", Shrub, pushes(20)).Flowers(); n != 0 {
+		t.Errorf("flowers without merges = %d", n)
+	}
+	events := append(pushes(20),
+		Event{Kind: Merge, At: t0.Add(30 * time.Hour)},
+		Event{Kind: Merge, At: t0.Add(31 * time.Hour)})
+	if n := Grow("r", Shrub, events).Flowers(); n != 2 {
+		t.Errorf("flowers after 2 merges = %d, want 2", n)
+	}
+}

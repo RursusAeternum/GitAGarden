@@ -132,3 +132,6 @@ const seedlingHeight = 4
 func heightCap(pushes int) int {
 	return seedlingHeight + int(growthFrac(pushes)*float64(Height-2-seedlingHeight))
 }
+
+// Flowers is how many flowers the plant has.
+func (p *Plant) Flowers() int { return len(p.cellsOf(Flower)) }

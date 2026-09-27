@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
 
@@ -53,6 +54,7 @@ func Draw(v View) *pixel.Canvas {
 	}
 	c := pixel.New(cols, h)
 	top := h - lay.Beds*bedPx // negative when the top is cropped
+	var hosts []Host
 	for b := 0; b < lay.Beds; b++ {
 		oy := top + b*bedPx
 		skyTop := oy
@@ -66,8 +68,15 @@ func Draw(v View) *pixel.Canvas {
 		DrawClouds(c, v.Now, skyTop, oy+groundTop, v.Seed+int64(b))
 		DrawGround(c, oy+groundTop, oy+bedPx, v.Seed)
 		for _, s := range slots(lay, b, len(v.Plots), cols, v.Pan) {
-			drawPlot(c, v, v.Plots[s.index], s.cx, oy)
+			pl := v.Plots[s.index]
+			drawPlot(c, v, pl, s.cx, oy)
+			if v.Motion && Flowering(pl) {
+				hosts = append(hosts, Host{X: s.cx, Y: oy + plantBaseY - garden.Height/2})
+			}
 		}
+	}
+	if v.Motion {
+		DrawCritters(c, v.Now, hosts, v.Seed)
 	}
 	return c
 }
