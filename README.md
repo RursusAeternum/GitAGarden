@@ -42,7 +42,8 @@ gh workflow run update-gag.yml -R RursusAeternum/homebrew-tap   # optional
 ## Run
 
 ```sh
-gag                                  # your GitHub repos as a garden
+gag                                  # your GitHub repos as a live, animated garden
+gag garden --once                    # print one static frame instead (also when piped)
 gag replay                           # watch one (fake) plant grow from its history
 gag replay -species cactus -name rustyfs -events 300
 ```
@@ -50,6 +51,14 @@ gag replay -species cactus -name rustyfs -events 300
 GAG draws with half-block characters and true color. If your terminal
 supports true color but GAG shows banded colors, force it with
 `GAG_COLOR=truecolor gag`. Use `GAG_COLOR=256` to force 256 colors.
+
+The live view runs until you quit it. Plants sway, clouds drift, the sky
+follows your clock, and bees visit healthy flowering plants. If the garden is
+wider than the window it pans slowly, and a ticker at the bottom calls out
+wilting projects and says how fresh the data is. It reloads from GitHub every
+5 minutes (`-refresh`).
+
+Live keys: `q` quit · `r` refresh now · `t` hide/show the ticker · `?` help.
 
 Replay keys: `space` play/pause · `←/→` step event · `+/-` speed · `s` cycle
 species · `f` toggle glass · `n` new history · `r` restart · `G` jump to end · `q` quit.
@@ -64,7 +73,7 @@ gag garden                                   # 8 most recently pushed repos you 
 gag garden -limit 12
 gag garden -repos owner/a,owner/b            # a fixed set; any public repo works
 gag garden -user charmbracelet               # someone else's public garden (user or org)
-gag garden -watch 5m                         # always-on display, e.g. on a Pi
+gag garden -refresh 2m                       # live view that reloads every 2 minutes
 gag garden -simulate 30d                     # preview: your garden after 30 days untouched (d, w, h)
 gag replay -repo owner/name                  # time-lapse of a real repo
 gag garden -demo                             # fake repos, no network

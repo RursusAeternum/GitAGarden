@@ -1,6 +1,7 @@
 // Command gag renders your git projects as a garden in the terminal.
 //
-//	gag garden   your GitHub repos as a garden (default; -demo for fake ones)
+//	gag          the live, animated garden of your GitHub repos (= gag garden)
+//	gag garden   the same; -once prints one static frame, -demo uses fake repos
 //	gag replay   time-lapse of one plant growing from its history
 //	gag version
 package main
@@ -19,7 +20,6 @@ import (
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/github"
 	"github.com/RursusAeternum/GitAGarden/internal/replay"
-	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 // version is stamped at release time by GoReleaser.
@@ -51,15 +51,16 @@ func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
 
 // loadRepos returns synced repos: the named ones, or the limit most recently
 // pushed by owner (your own repos when owner is empty). If GitHub is
-// unreachable it falls back to the local cache.
-func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration) ([]*github.Repo, error) {
+// unreachable it falls back to the local cache and reports offline. log gets
+// progress lines ("fetching owner/repo"); nil discards them.
+func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration, log func(string)) ([]*github.Repo, bool, error) {
 	store, err := github.OpenStore()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	c, err := github.NewClient()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var metas []*github.Repo
@@ -82,17 +83,19 @@ func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl
 		}
 	}
 
-	repos, err := github.Sync(ctx, c, store, metas, ttl, logf)
+	repos, err := github.Sync(ctx, c, store, metas, ttl, log)
 	if err != nil {
 		if len(repos) == 0 {
-			return nil, err
+			return nil, false, err
 		}
-		logf("some repos could not be refreshed; showing cached data")
+		return repos, true, nil // some repos are stale cached copies
 	}
-	return repos, nil
+	return repos, false, nil
 }
 
-func cachedRepos(store *github.Store, names []string, owner string, limit int, cause error) ([]*github.Repo, error) {
+// cachedRepos is loadRepos' offline fallback: the cached copies of the
+// requested repos, or cause if there are none.
+func cachedRepos(store *github.Store, names []string, owner string, limit int, cause error) ([]*github.Repo, bool, error) {
 	var repos []*github.Repo
 	if len(names) > 0 {
 		for _, n := range names {
@@ -110,10 +113,9 @@ func cachedRepos(store *github.Store, names []string, owner string, limit int, c
 		repos = repos[:min(limit, len(repos))]
 	}
 	if len(repos) == 0 {
-		return nil, cause
+		return nil, false, cause
 	}
-	logf(fmt.Sprintf("offline (%v); showing cached data", cause))
-	return repos, nil
+	return repos, true, nil
 }
 
 func historyStart(n int) time.Time {
@@ -150,7 +152,7 @@ func runReplay(args []string) error {
 	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished, Profile: colorProfile()}
 
 	if *repo != "" {
-		repos, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl)
+		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, logf)
 		if err != nil {
 			return err
 		}
@@ -171,115 +173,4 @@ func runReplay(args []string) error {
 	}
 	_, err = tea.NewProgram(replay.New(cfg), tea.WithAltScreen()).Run()
 	return err
-}
-
-func runGarden(args []string) error {
-	fs := flag.NewFlagSet("garden", flag.ExitOnError)
-	demo := fs.Bool("demo", false, "show fake demo repos instead of GitHub")
-	limit := fs.Int("limit", 8, "how many recently pushed repos to show")
-	names := fs.String("repos", "", "comma-separated owner/name list to show instead (any public repo works)")
-	user := fs.String("user", "", "show another GitHub user's or organization's public garden")
-	ttl := fs.Duration("ttl", 15*time.Minute, "reuse cached GitHub data younger than this")
-	watch := fs.Duration("watch", 0, "redraw at this interval, e.g. 5m (for an always-on display)")
-	decay := fs.Float64("decay", 45, "days of neglect until fully wilted")
-	simulate := fs.String("simulate", "", "fast-forward: show the garden as it would look after this long untouched, e.g. 30d, 2w, 36h")
-	fs.Parse(args)
-
-	var ahead time.Duration
-	if *simulate != "" {
-		var err error
-		if ahead, err = parseSpan(*simulate); err != nil || ahead < 0 {
-			return fmt.Errorf("-simulate %q: want a positive span like 30d, 2w or 36h", *simulate)
-		}
-	}
-
-	var list []string
-	for _, s := range strings.Split(*names, ",") {
-		if s = strings.TrimSpace(s); s != "" {
-			list = append(list, s)
-		}
-	}
-
-	prof := colorProfile()
-	render := func() (string, error) {
-		now := time.Now()
-		at := now.Add(ahead) // the moment the garden is drawn at
-		header := ""
-		if ahead > 0 {
-			header = fmt.Sprintf("simulating %s ahead: %s, nothing tended\n\n", *simulate, at.Format("2006-01-02"))
-		}
-		var plots []scene.Plot
-		if *demo {
-			plots = demoPlots(now, at, *decay)
-		} else {
-			repos, err := loadRepos(context.Background(), list, *user, *limit, *ttl)
-			if err != nil {
-				return "", err
-			}
-			for _, r := range repos {
-				plots = append(plots, plotFor(garden.Grow(r.Name(), r.Species(), r.Events()), r.Name(), r.Finished(), at, *decay))
-			}
-		}
-		return header + scene.Compose(termWidth(), plots, at, 1).Encode(prof) + "\n", nil
-	}
-
-	if *watch <= 0 {
-		out, err := render()
-		fmt.Print(out)
-		return err
-	}
-	for {
-		out, err := render()
-		if err != nil {
-			logf(err.Error())
-		} else {
-			fmt.Print("\033[H\033[2J" + out)
-		}
-		time.Sleep(*watch)
-	}
-}
-
-type demoRepo struct {
-	name, lang string
-	events     int
-	idleDays   int
-	finished   bool
-}
-
-var demo = []demoRepo{
-	{"gag-core", "go", 160, 0, false},
-	{"rustyfs", "rust", 90, 12, false},
-	{"notebook-api", "python", 70, 3, false},
-	{"old-blog", "go", 120, 400, true},
-	{"dotfiles", "shell", 40, 35, false},
-	{"tiny-cli", "rust", 12, 1, false},
-	{"site-v2", "typescript", 110, 70, false},
-	{"lsystem", "c", 60, 200, true},
-}
-
-// plotFor bundles a grown plant with its health and status at time at.
-func plotFor(p *garden.Plant, name string, finished bool, at time.Time, decay float64) scene.Plot {
-	h := garden.Health(p, at, decay)
-	if finished {
-		h = 1
-	}
-	return scene.Plot{Plant: p, Style: garden.Style{Health: h}, Finished: finished,
-		Name: name, Status: garden.Status(p, at, finished)}
-}
-
-// demoPlots builds fake histories relative to now and draws them at at,
-// which is later than now when simulating.
-func demoPlots(now, at time.Time, decay float64) []scene.Plot {
-	var plots []scene.Plot
-	for _, r := range demo {
-		// Shift the fake history so its last event lands idleDays ago.
-		events := garden.FakeHistory(r.name, r.events, now)
-		shift := now.Sub(events[len(events)-1].At) - time.Duration(r.idleDays)*24*time.Hour
-		for i := range events {
-			events[i].At = events[i].At.Add(shift)
-		}
-		p := garden.Grow(r.name, garden.SpeciesFor(r.lang), events)
-		plots = append(plots, plotFor(p, r.name, r.finished, at, decay))
-	}
-	return plots
 }

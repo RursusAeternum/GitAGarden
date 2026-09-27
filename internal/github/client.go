@@ -23,6 +23,9 @@ type Client struct {
 	hc    *http.Client
 }
 
+// ErrNoToken means no GitHub token was found in the environment or the gh CLI.
+var ErrNoToken = errors.New("no GitHub token: set GITHUB_TOKEN or run `gh auth login` (or try `gag garden -demo`)")
+
 // NewClient authenticates with GITHUB_TOKEN or GH_TOKEN, falling back to the
 // token of the active `gh` CLI account.
 func NewClient() (*Client, error) {
@@ -33,7 +36,7 @@ func NewClient() (*Client, error) {
 	if tok == "" {
 		out, err := exec.Command("gh", "auth", "token").Output()
 		if err != nil {
-			return nil, errors.New("no GitHub token: set GITHUB_TOKEN or run `gh auth login` (or try `gag garden -demo`)")
+			return nil, ErrNoToken
 		}
 		tok = strings.TrimSpace(string(out))
 	}
