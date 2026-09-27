@@ -89,14 +89,17 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
+// calmIcon marks the ticker's all-is-well line.
+const calmIcon = "🌱"
+
 func calm(commits7d int) Item {
 	switch commits7d {
 	case 0:
-		return Item{"🌱", "All quiet in the garden"}
+		return Item{calmIcon, "All quiet in the garden"}
 	case 1:
-		return Item{"🌱", "Garden thriving: 1 commit this week"}
+		return Item{calmIcon, "Garden thriving: 1 commit this week"}
 	}
-	return Item{"🌱", fmt.Sprintf("Garden thriving: %d commits this week", commits7d)}
+	return Item{calmIcon, fmt.Sprintf("Garden thriving: %d commits this week", commits7d)}
 }
 
 // Line renders the ticker in exactly width cells: the current item on the

@@ -13,6 +13,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
+	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -393,6 +394,98 @@ func TestLabelShowsInTheTicker(t *testing.T) {
 	m = ready(m, 100, 30)
 	lines := strings.Split(m.View(), "\n")
 	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "simulating 30d ahead") {
+		t.Errorf("ticker = %q", last)
+	}
+}
+
+// starred copies snap with the given star counts on its repos, in order.
+func starred(snap Snapshot, stars ...int) Snapshot {
+	out := snap
+	out.Repos = append([]Repo(nil), snap.Repos...)
+	for i, s := range stars {
+		out.Repos[i].Stars = s
+	}
+	return out
+}
+
+func TestNewStarsShootAndGetNoted(t *testing.T) {
+	m := ready(newModel(starred(garden3(), 5, 0, 1), nil, t0), 100, 30)
+	if len(m.shots) != 0 {
+		t.Fatal("the first load only sets the baseline")
+	}
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 7, 1, 1)})
+	if len(m.shots) != 3 {
+		t.Errorf("shots = %d, want 3 (2 + 1)", len(m.shots))
+	}
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "⭐ 2 new stars on bloom") {
+		t.Errorf("ticker = %q", last)
+	}
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 57, 1, 1)})
+	if len(m.shots) != 6 {
+		t.Errorf("shots = %d; a refresh adds at most 3", len(m.shots))
+	}
+}
+
+func TestStarsThatDontCountDontShoot(t *testing.T) {
+	m := ready(newModel(starred(garden3(), 5, 5, 5), nil, t0), 100, 30)
+	offline := starred(garden3(), 9, 9, 9)
+	offline.Offline = true
+	m, _ = step(m, loadedMsg{snap: offline})
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 4, 5, 5)}) // an unstar
+	newcomer := starred(garden3(), 4, 5, 5)
+	extra := grow("newcomer", 10, 0, t0)
+	extra.Stars = 30
+	newcomer.Repos = append(newcomer.Repos, extra)
+	m, _ = step(m, loadedMsg{snap: newcomer}) // a repo joining brings its stars along
+	if len(m.shots) != 0 || len(m.notes) != 0 {
+		t.Errorf("shots %d, notes %d; want none", len(m.shots), len(m.notes))
+	}
+}
+
+func TestShotsAndNotesExpire(t *testing.T) {
+	now := t0
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return starred(garden3(), 1, 1, 1), nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m = ready(m, 100, 30)
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 2, 1, 1)})
+	if len(m.shots) != 1 || len(m.notes) != 1 {
+		t.Fatalf("shots %d, notes %d; want 1 each", len(m.shots), len(m.notes))
+	}
+	now = now.Add(61 * time.Second)
+	m, _ = step(m, tickMsg{})
+	if len(m.shots) != 0 || len(m.notes) != 0 {
+		t.Errorf("shots %d, notes %d; want none after a minute", len(m.shots), len(m.notes))
+	}
+}
+
+func TestShootingStarsKeepFramesFast(t *testing.T) {
+	night := t0.Add(11 * time.Hour)
+	m := ready(newModel(starred(garden3(), 1, 1, 1), nil, night), 80, 24)
+	if m.frameInterval() != slowFrame {
+		t.Fatal("a quiet night should idle")
+	}
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 2, 1, 1)})
+	if m.frameInterval() != fastFrame {
+		t.Error("a shooting star in flight needs the fast frame rate")
+	}
+}
+
+func TestCalmLineShowsTheStarTotalInStarMode(t *testing.T) {
+	snap := Snapshot{Repos: []Repo{grow("bloom", 60, 4, t0.Add(-time.Hour))}, Commits7d: 5, FetchedAt: t0}
+	snap.Repos[0].Stars = 48
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return snap, nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+		Sky:       scene.SkyStars,
+	})
+	m = ready(m, 100, 30)
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "Garden thriving: 5 commits this week · ⭐ 48") {
 		t.Errorf("ticker = %q", last)
 	}
 }

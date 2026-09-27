@@ -24,6 +24,9 @@ const (
 	helpLine         = "q quit · r refresh · t ticker · ? help"
 	wakeGap          = time.Minute      // a longer gap between ticks means the machine slept
 	wakeDelay        = 10 * time.Second // then give the network a moment before refreshing
+	maxShots         = 3                // shooting stars per refresh, however many stars arrive
+	shotGap          = 2 * time.Second  // between queued shooting stars
+	noteFor          = time.Minute      // how long the ticker names a new star
 )
 
 var tickerStyle = lipgloss.NewStyle().
@@ -39,6 +42,7 @@ type Config struct {
 	Profile   pixel.Profile
 	Now       func() time.Time // wall clock; default time.Now
 	Label     string           // shown before the ticker's status, e.g. "simulating 30d ahead"
+	Sky       scene.SkyMode    // what the night sky shows
 }
 
 type Model struct {
@@ -52,10 +56,13 @@ type Model struct {
 	gen        int   // bumps on every finished load; older refresh timers are ignored
 	ticker     bool
 	help       bool
-	progress   Progress  // how far the current load has come
-	lastTick   time.Time // wall-clock time of the last frame, to notice sleep
-	wokeAt     time.Time // when a wake was noticed; the refresh waits wakeDelay
-	progressAt time.Time // when the last progress update arrived
+	progress   Progress         // how far the current load has come
+	lastTick   time.Time        // wall-clock time of the last frame, to notice sleep
+	wokeAt     time.Time        // when a wake was noticed; the refresh waits wakeDelay
+	progressAt time.Time        // when the last progress update arrived
+	stars      map[string]int   // star counts from the last online load; nil before the first
+	shots      []scene.Shooting // queued and flying shooting stars
+	notes      []starNote       // ticker notes about new stars
 }
 
 type (
@@ -138,6 +145,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.cols, m.rows = msg.Width, msg.Height
 	case tickMsg:
+		m.prune()
 		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
 		if !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap {
 			m.wokeAt = now // Wi-Fi often needs a few seconds after waking
@@ -165,6 +173,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.repos = updateKnown(m.repos, msg.snap.Repos)
 			} else {
 				m.repos = merge(m.repos, msg.snap.Repos)
+			}
+			if !msg.snap.Offline { // cached counts are no news
+				m.noticeNewStars(msg.snap.Repos)
 			}
 		}
 		gen := m.gen
@@ -234,6 +245,82 @@ func updateKnown(shown, cached []Repo) []Repo {
 	return out
 }
 
+// starNote tells the ticker that repo got n new stars, until until.
+type starNote struct {
+	repo  string
+	n     int
+	until time.Time
+}
+
+// noticeNewStars compares star counts with the last online load: each repo
+// that gained stars gets a ticker note, and up to maxShots shooting stars
+// cross the sky. The first load only sets the baseline; repos that just
+// joined the garden don't count, and neither do lost stars.
+func (m *Model) noticeNewStars(repos []Repo) {
+	counts := make(map[string]int, len(repos))
+	for _, r := range repos {
+		counts[r.Name] = r.Stars
+	}
+	if m.stars != nil {
+		wall, at, shots := m.cfg.Now(), m.now(), 0
+		for _, r := range repos {
+			before, known := m.stars[r.Name]
+			gained := r.Stars - before
+			if !known || gained <= 0 {
+				continue
+			}
+			m.notes = append(m.notes, starNote{repo: r.Name, n: gained, until: wall.Add(noteFor)})
+			for i := 0; i < gained && shots < maxShots; i++ {
+				m.shots = append(m.shots, scene.Shooting{Start: at.Add(time.Duration(shots) * shotGap), Seed: at.UnixMilli() + int64(len(m.shots))})
+				shots++
+			}
+		}
+	}
+	m.stars = counts
+}
+
+// prune forgets shooting stars that have landed and notes that have expired.
+func (m *Model) prune() {
+	at, wall := m.now(), m.cfg.Now()
+	var shots []scene.Shooting
+	for _, s := range m.shots {
+		if at.Sub(s.Start) < scene.ShootingFor {
+			shots = append(shots, s)
+		}
+	}
+	var notes []starNote
+	for _, n := range m.notes {
+		if wall.Before(n.until) {
+			notes = append(notes, n)
+		}
+	}
+	m.shots, m.notes = shots, notes
+}
+
+func (m Model) starTotal() int {
+	total := 0
+	for _, r := range m.repos {
+		total += r.Stars
+	}
+	return total
+}
+
+// starItems are the ticker's notes about new stars.
+func (m Model) starItems() []Item {
+	var items []Item
+	for _, n := range m.notes {
+		if !m.cfg.Now().Before(n.until) {
+			continue
+		}
+		text := "New star on " + n.repo
+		if n.n > 1 {
+			text = fmt.Sprintf("%d new stars on %s", n.n, n.repo)
+		}
+		items = append(items, Item{"⭐", text})
+	}
+	return items
+}
+
 func (m Model) now() time.Time         { return m.cfg.Now().Add(m.cfg.Ahead) }
 func (m Model) elapsed() time.Duration { return m.cfg.Now().Sub(m.start) }
 func (m Model) tickerShown() bool      { return m.ticker || m.help }
@@ -285,6 +372,11 @@ func (m Model) busy() bool {
 		return true
 	}
 	at := m.now()
+	for _, s := range m.shots {
+		if at.Sub(s.Start) < scene.ShootingFor {
+			return true // a shooting star is flying, or queued to
+		}
+	}
 	day := scene.Darkness(at) <= 0.5
 	for _, pl := range m.plots(at) {
 		if pl.Weather == scene.Storm || (day && scene.Flowering(pl)) {
@@ -308,7 +400,8 @@ func (m Model) View() string {
 	at := m.now()
 	rows := m.gardenRows()
 	plots := m.plots(at)
-	v := scene.View{Cols: m.cols, Rows: rows, Plots: plots, Now: at, Seed: 1, Motion: true}
+	v := scene.View{Cols: m.cols, Rows: rows, Plots: plots, Now: at, Seed: 1, Motion: true,
+		Sky: m.cfg.Sky, StarTotal: m.starTotal(), Shooting: m.shots}
 	if lay := scene.LayoutFor(m.cols, rows, len(plots)); lay.Overflow {
 		v.Pan = scene.PanAt(m.elapsed(), lay.Columns)
 	}
@@ -348,7 +441,11 @@ func (m Model) tickerLine(at time.Time) string {
 	if m.help {
 		return fit(" "+helpLine, status+" ", m.cols)
 	}
-	return Line(Items(m.repos, at, m.cfg.DecayDays, m.snap.Commits7d), m.elapsed(), status, m.cols)
+	items := Items(m.repos, at, m.cfg.DecayDays, m.snap.Commits7d)
+	if m.cfg.Sky == scene.SkyStars && len(items) == 1 && items[0].Icon == calmIcon {
+		items[0].Text += fmt.Sprintf(" · ⭐ %d", m.starTotal())
+	}
+	return Line(append(m.starItems(), items...), m.elapsed(), status, m.cols)
 }
 
 // center wraps text to the window's width and centers it in the window.

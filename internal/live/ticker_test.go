@@ -144,7 +144,7 @@ func TestItemsFollowTheAttentionOrder(t *testing.T) {
 }
 
 func TestTickerIconsAreTwoCellsWide(t *testing.T) {
-	for _, icon := range []string{"⚡", "🌷", "🥀", "🐌", "🌱"} {
+	for _, icon := range []string{"⚡", "🌷", "🥀", "🐌", "🌱", "⭐"} {
 		if w := runewidth.StringWidth(icon); w != 2 {
 			t.Errorf("%s is %d cells wide; ticker icons must be two-cell emoji", icon, w)
 		}

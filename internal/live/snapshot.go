@@ -18,6 +18,7 @@ type Repo struct {
 	PRs       []time.Time // when each open, non-draft PR was opened
 	NewIssues int         // issues opened in the last 7 days
 	Rising    bool        // more commits in the last 14 days than in the 14 before
+	Stars     int         // GitHub stars
 }
 
 // CI is a repo's build state on its default branch.
