@@ -65,15 +65,21 @@ type base struct {
 
 var dirs8 = []pt{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
 
-// sprout places a cell in a free spot next to one of the anchors and says
-// where. The ground row is left to the stem base and weeds.
+// sprout places a new cell of kind k in a free spot next to one of the
+// anchors and says where. The ground row is left to the stem base and weeds.
 func (b base) sprout(anchors []pt, k CellKind, upOnly bool) (pt, bool) {
+	return b.sproutCell(anchors, b.p.cell(k), upOnly)
+}
+
+// sproutCell is sprout for a ready-made cell, so a moved bloom keeps its
+// birth time.
+func (b base) sproutCell(anchors []pt, cell Cell, upOnly bool) (pt, bool) {
 	try := func(a, d pt) (pt, bool) {
 		x, y := a.x+d.x, a.y+d.y
 		if (upOnly && d.y > 0) || y >= ground || !b.p.free(x, y) {
 			return pt{}, false
 		}
-		b.p.set(x, y, k)
+		b.p.Grid[y][x] = cell
 		return pt{x, y}, true
 	}
 	if len(anchors) == 0 {
@@ -94,18 +100,21 @@ func (b base) sprout(anchors []pt, k CellKind, upOnly bool) (pt, bool) {
 	return pt{}, false
 }
 
-// bloom places a flower or fruit near the anchors, falling back to anywhere on
-// the plant, and finally to turning an existing leaf into it.
-func (b base) bloom(anchors []pt, k CellKind) {
-	if _, ok := b.sprout(anchors, k, true); ok {
+// bloom places a new flower or fruit near the anchors.
+func (b base) bloom(anchors []pt, k CellKind) { b.bloomCell(anchors, b.p.cell(k)) }
+
+// bloomCell places cell near the anchors, falling back to anywhere on the
+// plant, and finally to taking an existing leaf's place.
+func (b base) bloomCell(anchors []pt, cell Cell) {
+	if _, ok := b.sproutCell(anchors, cell, true); ok {
 		return
 	}
-	if _, ok := b.sprout(b.p.cellsOf(Stem, Body, Leaf), k, false); ok {
+	if _, ok := b.sproutCell(b.p.cellsOf(Stem, Body, Leaf), cell, false); ok {
 		return
 	}
 	if leaves := b.p.cellsOf(Leaf); len(leaves) > 0 {
 		c := leaves[b.r.Intn(len(leaves))]
-		b.p.set(c.x, c.y, k)
+		b.p.Grid[c.y][c.x] = cell
 	}
 }
 
@@ -117,6 +126,7 @@ func (b base) thicken() bool {
 		c := &b.p.Grid[leaves[i].y][leaves[i].x]
 		if c.Level < maxLevel {
 			c.Level++
+			c.At = b.p.stamp // lusher is new growth too
 			return true
 		}
 	}
@@ -251,12 +261,13 @@ func (c *cactus) open(x, y int) bool {
 }
 
 // grow turns x,y into flesh. A flower or fruit there is carried up onto the
-// new growth, so merges crown the cactus instead of capping it.
+// new growth, keeping its birth time, so merges crown the cactus instead of
+// capping it.
 func (c *cactus) grow(x, y int) {
-	k := c.p.Grid[y][x].Kind
+	old := c.p.Grid[y][x]
 	c.p.set(x, y, Body)
-	if k == Flower || k == Fruit {
-		c.bloom([]pt{{x, y}}, k)
+	if old.Kind == Flower || old.Kind == Fruit {
+		c.bloomCell([]pt{{x, y}}, old)
 	}
 }
 

@@ -2,14 +2,18 @@ package garden
 
 import (
 	"math"
+	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
 
 // Style is how a plant is painted in one frame.
 type Style struct {
-	Health float64 // 1 fresh … 0 fully wilted
-	Sway   float64 // horizontal offset of the plant's top row, in pixels
+	Health float64     // 1 fresh … 0 fully wilted
+	Sway   float64     // horizontal offset of the plant's top row, in pixels
+	Now    time.Time   // the frame's time; ages flowers and buds (zero: all fresh)
+	Buds   []time.Time // when each open PR was opened; up to MaxBuds are drawn
+	Rising bool        // more commits lately than before: recent growth shows as shoots
 }
 
 func rgbOf(r, g, b uint8) pixel.RGB { return pixel.RGB{R: r, G: g, B: b} }
@@ -29,6 +33,10 @@ var (
 	weedColor    = rgbOf(130, 140, 60)
 	dryColor     = rgbOf(200, 160, 70)
 	deadColor    = rgbOf(122, 82, 48)
+	seedColor    = rgbOf(214, 196, 150)
+	shootColor   = rgbOf(185, 245, 105)
+	budColor     = rgbOf(235, 110, 150)
+	paleBud      = rgbOf(215, 185, 175)
 )
 
 // palette is the species palette with a per-plant tint and flower color,
@@ -53,12 +61,17 @@ func wilt(c pixel.RGB, h float64) pixel.RGB {
 	return pixel.Lerp(deadColor, dryColor, h/0.3)
 }
 
+// swayAt is how far row y is shifted by the plant's sway.
+func swayAt(st Style, y int) int {
+	return int(math.Round(st.Sway * float64(ground-y) / float64(Height)))
+}
+
 // Paint draws p with its ground row on pixel row baseY, centered on
 // column baseX. Higher rows are shifted by up to st.Sway pixels.
 func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 	pal, h := p.palette(), st.Health
 	for y := 0; y < Height; y++ {
-		dx := int(math.Round(st.Sway * float64(ground-y) / float64(Height)))
+		dx := swayAt(st, y)
 		for x := 0; x < Width; x++ {
 			cell := p.Grid[y][x]
 			var col pixel.RGB
@@ -83,6 +96,9 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 				col = col.Scale(1 + 0.12*float64(cell.Level))
 			case Flower:
 				col = pal.flower
+				if seedHead(cell, st.Now) {
+					col = seedColor
+				}
 				if h < 0.5 {
 					col = pixel.Lerp(col, deadColor, 0.6)
 				}
@@ -91,6 +107,9 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 				if h < 0.3 {
 					col = deadColor
 				}
+			}
+			if st.Rising && (cell.Kind == Stem || cell.Kind == Leaf || cell.Kind == Body) && fresh(cell, st.Now) {
+				col = pixel.Lerp(col, shootColor, 0.55)
 			}
 			c.Set(baseX-center+x+dx, baseY-ground+y, col.Scale(0.9+0.2*hash01(p.Name, x, y)))
 		}
@@ -104,5 +123,12 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 		if i%2 == 0 {
 			c.Set(baseX-center+s, baseY-1, weedColor.Scale(1.15))
 		}
+	}
+	for i, s := range p.budSpots(min(len(st.Buds), MaxBuds)) {
+		col, y := budColor, s.y
+		if !st.Now.IsZero() && st.Now.Sub(st.Buds[i]) > budDroop {
+			col, y = paleBud, s.y+1 // waited too long: it droops and fades
+		}
+		c.Set(baseX-center+s.x+swayAt(st, y), baseY-ground+y, col)
 	}
 }
