@@ -21,6 +21,7 @@ const endpoint = "https://api.github.com/graphql"
 type Client struct {
 	token string
 	hc    *http.Client
+	url   string // GraphQL endpoint; tests point it at a fake server
 }
 
 // ErrNoToken means no GitHub token was found in the environment or the gh CLI.
@@ -40,7 +41,7 @@ func NewClient() (*Client, error) {
 		}
 		tok = strings.TrimSpace(string(out))
 	}
-	return &Client{token: tok, hc: &http.Client{Timeout: 90 * time.Second}}, nil
+	return &Client{token: tok, hc: &http.Client{Timeout: 90 * time.Second}, url: endpoint}, nil
 }
 
 func (c *Client) query(ctx context.Context, q string, vars map[string]any, out any) error {
@@ -48,7 +49,7 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]any, out a
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

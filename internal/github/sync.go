@@ -139,6 +139,24 @@ func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 			r.Releases = append(r.Releases, Release{Tag: rel.TagName, CreatedAt: rel.CreatedAt})
 		}
 	}
+	type openPRNode struct {
+		Number    int
+		Title     string
+		CreatedAt time.Time
+		IsDraft   bool
+	}
+	open, err := connection[openPRNode](ctx, c, owner, name, "pullRequests", ",states:OPEN", "number title createdAt isDraft")
+	if err != nil {
+		return fmt.Errorf("open pull requests: %w", err)
+	}
+	branch, ci, err := c.branchStatus(ctx, owner, name)
+	if err != nil {
+		return fmt.Errorf("ci status: %w", err)
+	}
+	r.OpenPRs, r.Branch, r.CI = nil, branch, ci
+	for _, n := range open {
+		r.OpenPRs = append(r.OpenPRs, OpenPR{Number: n.Number, Title: n.Title, CreatedAt: n.CreatedAt, Draft: n.IsDraft})
+	}
 	r.FetchedAt = time.Now()
 	return nil
 }
@@ -198,6 +216,7 @@ func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Dura
 		cached := s.Repos[m.NameWithOwner]
 		if cached != nil && time.Since(cached.FetchedAt) < ttl {
 			m.Commits, m.PRs, m.Issues, m.Releases, m.FetchedAt = cached.Commits, cached.PRs, cached.Issues, cached.Releases, cached.FetchedAt
+			m.OpenPRs, m.Branch, m.CI = cached.OpenPRs, cached.Branch, cached.CI
 			s.Repos[m.NameWithOwner] = m
 			out = append(out, m)
 			continue
@@ -225,4 +244,32 @@ func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Dura
 		out = append(out, m)
 	}
 	return out, firstErr
+}
+
+// branchStatus returns the default branch's name and the combined CI state
+// of its latest commit: SUCCESS, FAILURE, ERROR, PENDING, EXPECTED, or ""
+// when the commit has no checks or the repo is empty.
+func (c *Client) branchStatus(ctx context.Context, owner, name string) (branch, state string, err error) {
+	q := `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name target{... on Commit{statusCheckRollup{state}}}}}}`
+	var out struct {
+		Repository struct {
+			DefaultBranchRef *struct {
+				Name   string
+				Target struct {
+					StatusCheckRollup *struct{ State string }
+				}
+			}
+		}
+	}
+	if err := c.query(ctx, q, map[string]any{"owner": owner, "name": name}, &out); err != nil {
+		return "", "", err
+	}
+	ref := out.Repository.DefaultBranchRef
+	if ref == nil {
+		return "", "", nil
+	}
+	if ref.Target.StatusCheckRollup != nil {
+		state = ref.Target.StatusCheckRollup.State
+	}
+	return ref.Name, state, nil
 }

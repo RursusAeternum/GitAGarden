@@ -33,6 +33,14 @@ type Release struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// OpenPR is a pull request that is neither merged nor closed.
+type OpenPR struct {
+	Number    int       `json:"number"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"createdAt"`
+	Draft     bool      `json:"draft,omitempty"`
+}
+
 // Repo is everything the garden needs to know about one repository.
 type Repo struct {
 	NameWithOwner string    `json:"nameWithOwner"`
@@ -44,6 +52,9 @@ type Repo struct {
 	PRs           []PR      `json:"prs"`
 	Issues        []Issue   `json:"issues"`
 	Releases      []Release `json:"releases"`
+	OpenPRs       []OpenPR  `json:"openPRs,omitempty"`
+	Branch        string    `json:"branch,omitempty"` // the default branch
+	CI            string    `json:"ci,omitempty"`     // statusCheckRollup state of its latest commit
 	FetchedAt     time.Time `json:"fetchedAt"`
 }
 
