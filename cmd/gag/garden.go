@@ -106,7 +106,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 	snap := live.Snapshot{Offline: offline, FetchedAt: now}
 	weekAgo := now.Add(-7 * 24 * time.Hour)
 	for _, r := range repos {
-		snap.Repos = append(snap.Repos, live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()), Finished: r.Finished()})
+		snap.Repos = append(snap.Repos, repoFor(r, now))
 		if !r.FetchedAt.IsZero() && r.FetchedAt.Before(snap.FetchedAt) {
 			snap.FetchedAt = r.FetchedAt
 		}
@@ -130,7 +130,7 @@ func printOnce(src source, ahead time.Duration, simulate string) error {
 	var plots []scene.Plot
 	if src.demo {
 		for _, r := range demoGarden(now) {
-			plots = append(plots, plotFor(r.Plant, r.Name, r.Finished, at, src.decay))
+			plots = append(plots, live.Plot(r, at, src.decay))
 		}
 	} else {
 		log, progress := logf, (func(done, total int, current string))(nil)
@@ -145,21 +145,11 @@ func printOnce(src source, ahead time.Duration, simulate string) error {
 			logf("GitHub unreachable or partly stale; showing cached data")
 		}
 		for _, r := range repos {
-			plots = append(plots, plotFor(garden.Grow(r.Name(), r.Species(), r.Events()), r.Name(), r.Finished(), at, src.decay))
+			plots = append(plots, live.Plot(repoFor(r, now), at, src.decay))
 		}
 	}
 	fmt.Print(header + scene.Compose(termWidth(), plots, at, 1).Encode(colorProfile()) + "\n")
 	return nil
-}
-
-// plotFor bundles a grown plant with its health and status at time at.
-func plotFor(p *garden.Plant, name string, finished bool, at time.Time, decay float64) scene.Plot {
-	h := garden.Health(p, at, decay)
-	if finished {
-		h = 1
-	}
-	return scene.Plot{Plant: p, Style: garden.Style{Health: h}, Finished: finished,
-		Name: name, Status: garden.Status(p, at, finished)}
 }
 
 type demoRepo struct {
@@ -167,21 +157,25 @@ type demoRepo struct {
 	events     int
 	idleDays   int
 	finished   bool
+	ci         live.CI
+	prDaysAgo  []int // open PRs, by age in days
+	newIssues  int
+	rising     bool
 }
 
 var demo = []demoRepo{
-	{"gag-core", "go", 160, 0, false},
-	{"rustyfs", "rust", 90, 12, false},
-	{"notebook-api", "python", 70, 3, false},
-	{"old-blog", "go", 120, 400, true},
-	{"dotfiles", "shell", 40, 35, false},
-	{"tiny-cli", "rust", 12, 1, false},
-	{"site-v2", "typescript", 110, 70, false},
-	{"lsystem", "c", 60, 200, true},
+	{name: "gag-core", lang: "go", events: 160, ci: live.CIPassing, prDaysAgo: []int{2, 10}, rising: true},
+	{name: "rustyfs", lang: "rust", events: 90, idleDays: 12, ci: live.CIFailing},
+	{name: "notebook-api", lang: "python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4},
+	{name: "old-blog", lang: "go", events: 120, idleDays: 400, finished: true},
+	{name: "dotfiles", lang: "shell", events: 40, idleDays: 35},
+	{name: "tiny-cli", lang: "rust", events: 12, idleDays: 1, prDaysAgo: []int{1}},
+	{name: "site-v2", lang: "typescript", events: 110, idleDays: 70},
+	{name: "lsystem", lang: "c", events: 60, idleDays: 200, finished: true},
 }
 
 // demoGarden grows the demo repos, with fake histories whose last event
-// lands idleDays before now.
+// lands idleDays before now and a few signals so every one shows.
 func demoGarden(now time.Time) []live.Repo {
 	var out []live.Repo
 	for _, r := range demo {
@@ -190,7 +184,54 @@ func demoGarden(now time.Time) []live.Repo {
 		for i := range events {
 			events[i].At = events[i].At.Add(shift)
 		}
-		out = append(out, live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), events), Finished: r.finished})
+		lr := live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), events),
+			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising}
+		for _, d := range r.prDaysAgo {
+			lr.PRs = append(lr.PRs, now.Add(-time.Duration(d)*24*time.Hour))
+		}
+		out = append(out, lr)
 	}
 	return out
+}
+
+// repoFor grows a repo's plant and works out its signals as of now.
+func repoFor(r *github.Repo, now time.Time) live.Repo {
+	lr := live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()),
+		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI)}
+	for _, pr := range r.OpenPRs {
+		if !pr.Draft { // drafts aren't waiting on anyone
+			lr.PRs = append(lr.PRs, pr.CreatedAt)
+		}
+	}
+	weekAgo := now.Add(-7 * 24 * time.Hour)
+	for _, is := range r.Issues {
+		if is.CreatedAt.After(weekAgo) {
+			lr.NewIssues++
+		}
+	}
+	var last, before int // commits in the last 14 days, and the 14 before
+	for _, c := range r.Commits {
+		switch age := now.Sub(c.At); {
+		case age < 14*24*time.Hour:
+			last++
+		case age < 28*24*time.Hour:
+			before++
+		}
+	}
+	lr.Rising = last > before
+	return lr
+}
+
+// ciFor maps GitHub's statusCheckRollup state to a CI state. States GitHub
+// may add later count as unknown: clear skies rather than a false alarm.
+func ciFor(state string) live.CI {
+	switch state {
+	case "SUCCESS":
+		return live.CIPassing
+	case "FAILURE", "ERROR":
+		return live.CIFailing
+	case "PENDING", "EXPECTED":
+		return live.CIPending
+	}
+	return live.CIUnknown
 }

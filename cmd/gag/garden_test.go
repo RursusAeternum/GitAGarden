@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/github"
+	"github.com/RursusAeternum/GitAGarden/internal/live"
 )
 
 func TestSnapshotFallsBackToDemoWithoutToken(t *testing.T) {
@@ -71,5 +72,62 @@ func TestTokenLossAfterARealLoadIsAnError(t *testing.T) {
 	src := source{limit: 8, ttl: time.Minute, decay: 45, state: &sourceState{real: true}}
 	if _, err := src.snapshot(context.Background(), nil); !errors.Is(err, github.ErrNoToken) {
 		t.Errorf("err = %v; a token hiccup mid-session must not swap in the demo garden", err)
+	}
+}
+
+func TestCIForMapsGitHubStates(t *testing.T) {
+	cases := map[string]live.CI{
+		"SUCCESS":       live.CIPassing,
+		"FAILURE":       live.CIFailing,
+		"ERROR":         live.CIFailing,
+		"PENDING":       live.CIPending,
+		"EXPECTED":      live.CIPending,
+		"":              live.CIUnknown,
+		"SOMETHING_NEW": live.CIUnknown,
+	}
+	for state, want := range cases {
+		if got := ciFor(state); got != want {
+			t.Errorf("ciFor(%q) = %v, want %v", state, got, want)
+		}
+	}
+}
+
+func TestRepoForComputesSignals(t *testing.T) {
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	day := func(d int) time.Time { return now.Add(-time.Duration(d) * 24 * time.Hour) }
+	r := &github.Repo{NameWithOwner: "me/x", Branch: "main", CI: "FAILURE",
+		OpenPRs: []github.OpenPR{{Number: 1, CreatedAt: day(9)}, {Number: 2, CreatedAt: day(1), Draft: true}},
+		Issues: []github.Issue{{Number: 1, CreatedAt: day(1)}, {Number: 2, CreatedAt: day(2)},
+			{Number: 3, CreatedAt: day(3)}, {Number: 4, CreatedAt: day(20)}},
+		Commits: []github.Commit{{At: day(1)}, {At: day(2)}, {At: day(3)}, {At: day(20)}},
+	}
+	lr := repoFor(r, now)
+	if lr.Name != "x" || lr.CI != live.CIFailing || lr.Branch != "main" {
+		t.Errorf("name %q, ci %v, branch %q", lr.Name, lr.CI, lr.Branch)
+	}
+	if len(lr.PRs) != 1 || !lr.PRs[0].Equal(day(9)) {
+		t.Errorf("PRs = %v, want only the non-draft one", lr.PRs)
+	}
+	if lr.NewIssues != 3 || !lr.Rising {
+		t.Errorf("new issues %d (want 3), rising %v (want true: 3 commits vs 1)", lr.NewIssues, lr.Rising)
+	}
+}
+
+func TestDemoShowsTheSignals(t *testing.T) {
+	var storms, buds, snails, rising int
+	for _, r := range demoGarden(time.Now()) {
+		if r.CI == live.CIFailing {
+			storms++
+		}
+		buds += len(r.PRs)
+		if r.NewIssues >= 3 {
+			snails++
+		}
+		if r.Rising {
+			rising++
+		}
+	}
+	if storms == 0 || buds == 0 || snails == 0 || rising == 0 {
+		t.Errorf("demo should show every signal: storms %d, buds %d, snails %d, rising %d", storms, buds, snails, rising)
 	}
 }
