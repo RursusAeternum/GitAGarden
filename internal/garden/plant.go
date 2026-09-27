@@ -2,16 +2,17 @@ package garden
 
 import (
 	"hash/fnv"
+	"math"
 	"math/rand"
 	"time"
 )
 
-// Canvas size of the plant itself, excluding pot and glass casing.
+// Size of the plant grid in pixels, excluding pot and scene.
 const (
-	Width  = 21
-	Height = 11
+	Width  = 23
+	Height = 32
 	center = Width / 2
-	ground = Height - 1 // bottom row of the canvas, just above the pot rim
+	ground = Height - 1 // bottom row of the grid, just above the pot soil
 )
 
 type CellKind uint8
@@ -27,8 +28,7 @@ const (
 
 type Cell struct {
 	Kind  CellKind
-	Glyph rune
-	Level uint8 // how lush a leaf is; grows once the canvas has no free room
+	Level uint8 // how lush a leaf is; grows once there is no room for new ones
 }
 
 type pt struct{ x, y int }
@@ -95,8 +95,8 @@ func (p *Plant) free(x, y int) bool {
 	return p.inBounds(x, y) && p.Grid[y][x].Kind == Empty
 }
 
-func (p *Plant) set(x, y int, k CellKind, g rune) {
-	p.Grid[y][x] = Cell{Kind: k, Glyph: g}
+func (p *Plant) set(x, y int, k CellKind) {
+	p.Grid[y][x] = Cell{Kind: k}
 }
 
 func (p *Plant) cellsOf(kinds ...CellKind) []pt {
@@ -118,4 +118,17 @@ func seedOf(s string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(s))
 	return int64(h.Sum64())
+}
+
+// growthFrac maps a push count onto 0..1 logarithmically: the first few
+// commits count most, and ~500 fill the plot.
+func growthFrac(pushes int) float64 {
+	return math.Min(1, math.Log2(1+float64(pushes))/math.Log2(513))
+}
+
+const seedlingHeight = 4
+
+// heightCap is how many pixels above the ground a plant may reach.
+func heightCap(pushes int) int {
+	return seedlingHeight + int(growthFrac(pushes)*float64(Height-2-seedlingHeight))
 }

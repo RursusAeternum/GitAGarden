@@ -73,3 +73,70 @@ func TestIssuesDoNotCountAsTending(t *testing.T) {
 		t.Errorf("LastTended=%v OpenIssues=%d", p.LastTended, p.OpenIssues)
 	}
 }
+
+func topRow(p *Plant) int {
+	for y := 0; y < Height; y++ {
+		for x := 0; x < Width; x++ {
+			if p.Grid[y][x].Kind != Empty {
+				return y
+			}
+		}
+	}
+	return Height
+}
+
+func TestTinyReposAreSeedlings(t *testing.T) {
+	for _, sp := range AllSpecies {
+		for _, events := range [][]Event{nil, pushes(1)} {
+			p := Grow("repo", sp, events)
+			if n := len(p.cellsOf(Stem, Body, Leaf)); n < 3 {
+				t.Errorf("%s with %d events: only %d cells, want a seedling", sp, len(events), n)
+			}
+			if h := ground - topRow(p); h > seedlingHeight+2 {
+				t.Errorf("%s with %d events is %dpx tall, want a seedling", sp, len(events), h)
+			}
+		}
+	}
+}
+
+func TestPlantsGrowWithTheLogOfPushes(t *testing.T) {
+	for _, sp := range []Species{Shrub, Cactus} {
+		small, big := Grow("repo", sp, pushes(8)), Grow("repo", sp, pushes(500))
+		hs, hb := ground-topRow(small), ground-topRow(big)
+		if hb <= hs {
+			t.Errorf("%s: 500 pushes (%dpx) not taller than 8 (%dpx)", sp, hb, hs)
+		}
+		if hs > heightCap(8)+2 {
+			t.Errorf("%s: 8 pushes reached %dpx, cap is %dpx", sp, hs, heightCap(8))
+		}
+	}
+}
+
+func TestCactusTrunkIsThreePixelsWide(t *testing.T) {
+	p := Grow("repo", Cactus, pushes(40))
+	for dx := -1; dx <= 1; dx++ {
+		if k := p.Grid[ground][center+dx].Kind; k != Body {
+			t.Errorf("trunk at dx=%d is kind %d, want Body", dx, k)
+		}
+	}
+}
+
+func TestCactusGrowsThroughItsFlowers(t *testing.T) {
+	// An early merge puts a flower on the trunk's top; later pushes must
+	// still raise the trunk (carrying the flower up), not stop under it.
+	events := append(pushes(2), Event{Kind: Merge, At: t0.Add(3 * time.Hour)})
+	for i := 0; i < 120; i++ {
+		events = append(events, Event{Kind: Push, At: t0.Add(time.Duration(4+i) * time.Hour)})
+	}
+	p := Grow("repo", Cactus, events)
+	trunk := 0
+	for y := ground; y >= 0 && p.Grid[y][center].Kind == Body; y-- {
+		trunk++
+	}
+	if min := heightCap(p.Pushes) / 2; trunk < min {
+		t.Errorf("trunk is %dpx after 122 pushes, want at least %d", trunk, min)
+	}
+	if len(p.cellsOf(Flower)) != 1 {
+		t.Errorf("flowers = %d, want the 1 flower kept", len(p.cellsOf(Flower)))
+	}
+}
