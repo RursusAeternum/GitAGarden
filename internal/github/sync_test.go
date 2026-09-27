@@ -113,3 +113,27 @@ func TestSyncReportsProgress(t *testing.T) {
 		t.Errorf("progress = %q, want %q", strings.Join(got, "|"), want)
 	}
 }
+
+func TestCIFailureKeepsTheRestOfTheFetch(t *testing.T) {
+	// Fine-grained tokens without checks access get FORBIDDEN on
+	// statusCheckRollup; the rest of the repo must still load.
+	c := fakeGitHub(t, func(q string) string {
+		switch {
+		case strings.Contains(q, "statusCheckRollup"):
+			return `{"errors":[{"type":"FORBIDDEN","message":"Resource not accessible by personal access token"}]}`
+		case strings.Contains(q, "history("):
+			return `{"data":{"repository":{"defaultBranchRef":null}}}`
+		case strings.Contains(q, "states:OPEN"):
+			return `{"data":{"repository":{"conn":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+				{"number":7,"title":"Add bees","createdAt":"2026-09-01T10:00:00Z","isDraft":false}]}}}}`
+		}
+		return emptyConn
+	})
+	r := &Repo{NameWithOwner: "me/garden"}
+	if err := c.fetch(context.Background(), r, nil); err != nil {
+		t.Fatalf("a CI permission error should not fail the fetch: %v", err)
+	}
+	if r.CI != "" || len(r.OpenPRs) != 1 {
+		t.Errorf("ci %q, open PRs %d; want unknown CI and the PR", r.CI, len(r.OpenPRs))
+	}
+}

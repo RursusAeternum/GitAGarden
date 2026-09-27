@@ -59,7 +59,7 @@ func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int) {
 			DrawGlint(c, v.Now, cx, oy+2, oy+potTop+PotH-1, BedCols-3, nameSeed(pl.Name))
 		}
 	} else {
-		drawWeather(c, cx, oy, pl.Weather, v.Now)
+		drawWeather(c, cx, max(oy, 0), oy+potTop, pl.Weather, v.Now) // a short window crops sky, not weather
 		if pl.Snail {
 			drawSnail(c, cx, oy, v.Now)
 		}

@@ -17,32 +17,57 @@ const (
 
 var (
 	greyCloud   = rgb(172, 178, 190)
-	stormCloud  = rgb(70, 74, 92)
-	rainColor   = rgb(150, 180, 230)
+	stormCloud  = rgb(46, 48, 62)
+	stormRim    = rgb(160, 160, 190) // a lit edge, so the storm reads against day and night skies
+	lightning   = rgb(255, 240, 150)
+	rainColor   = rgb(90, 110, 170) // darker than the day sky, lighter than the night
 	shellColor  = rgb(150, 96, 56)
 	shellSpiral = rgb(205, 160, 100)
 	snailBody   = rgb(176, 172, 150)
 )
 
 // rainStep is how long a raindrop takes to fall one pixel; snailCrawl is how
-// long the snail takes to move one.
-const rainStep, snailCrawl = 90 * time.Millisecond, 3 * time.Second
+// long the snail takes to move one. Lightning flashes for flashFor out of
+// every flashEvery.
+const (
+	rainStep, snailCrawl = 90 * time.Millisecond, 3 * time.Second
+	flashEvery, flashFor = 5 * time.Second, 300 * time.Millisecond
+)
 
-// drawWeather draws a plant's own weather in its headroom: a small grey cloud
-// while CI runs, a dark cloud with rain falling to the pot when it fails.
-// Raindrop positions come from the clock, so rain falls in live frames.
-func drawWeather(c *pixel.Canvas, cx, oy int, w Weather, t time.Time) {
+// drawWeather draws a plant's own weather at the top of its visible sky: a
+// small grey cloud while CI runs; when it fails, a dark cloud with a lit rim,
+// dense rain falling to the soil at row soil, and a lightning flash every few
+// seconds, so a broken build shows from across the room by day and by night.
+// Raindrops and flashes come from the clock, so they move in live frames.
+func drawWeather(c *pixel.Canvas, cx, top, soil int, w Weather, t time.Time) {
 	switch w {
 	case Cloudy:
-		puff(c, cx, oy+1, 4, greyCloud)
+		puff(c, cx, top+1, 4, greyCloud)
 	case Storm:
-		puff(c, cx, oy+1, 8, stormCloud)
-		fall := int64(potTop - 3)
-		step := t.UnixMilli() / rainStep.Milliseconds()
-		for x := cx - 7; x <= cx+7; x += 3 {
-			y := oy + 3 + int(((step+int64(x)*5)%fall+fall)%fall)
-			c.Blend(x, y, rainColor, 0.85)
-			c.Blend(x, y+1, rainColor, 0.6)
+		const half = 8
+		puff(c, cx, top+1, half, stormCloud)
+		for dx := -half; dx <= half; dx++ { // light the cloud's upper edge
+			y := top + 2
+			switch {
+			case dx >= -half/2 && dx <= half/2:
+				y = top
+			case dx > -half && dx < half:
+				y = top + 1
+			}
+			c.Set(cx+dx, y, stormRim)
+		}
+		if fall := int64(soil - (top + 3)); fall > 0 {
+			step := t.UnixMilli() / rainStep.Milliseconds()
+			for x := cx - 7; x <= cx+7; x += 2 {
+				y := top + 3 + int(((step+int64(x)*5)%fall+fall)%fall)
+				c.Set(x, y, rainColor)
+				c.Set(x, y+1, rainColor)
+			}
+		}
+		if t.UnixMilli()%flashEvery.Milliseconds() < flashFor.Milliseconds() {
+			for i, dx := range []int{-1, 0, -1, 0, 1} {
+				c.Set(cx+dx, top+3+i, lightning)
+			}
 		}
 	}
 }

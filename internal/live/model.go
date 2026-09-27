@@ -22,7 +22,8 @@ const (
 	swayPeriod       = 5 * time.Second
 	minCols, minRows = 24, 12
 	helpLine         = "q quit · r refresh · t ticker · ? help"
-	wakeGap          = time.Minute // a longer gap between ticks means the machine slept
+	wakeGap          = time.Minute      // a longer gap between ticks means the machine slept
+	wakeDelay        = 10 * time.Second // then give the network a moment before refreshing
 )
 
 var tickerStyle = lipgloss.NewStyle().
@@ -53,6 +54,8 @@ type Model struct {
 	help       bool
 	progress   Progress  // how far the current load has come
 	lastTick   time.Time // wall-clock time of the last frame, to notice sleep
+	wokeAt     time.Time // when a wake was noticed; the refresh waits wakeDelay
+	progressAt time.Time // when the last progress update arrived
 }
 
 type (
@@ -102,9 +105,17 @@ func (m Model) load(force bool) tea.Cmd {
 		ch := make(chan tea.Msg, 8)
 		go func() {
 			s, err := load(ctx, func(p Progress) {
-				select {
-				case ch <- progressMsg{p: p, ch: ch}:
-				default: // the screen is behind; a later update catches up
+				msg := progressMsg{p: p, ch: ch}
+				for { // keep the newest update: when the queue is full, drop its oldest
+					select {
+					case ch <- msg:
+						return
+					default:
+						select {
+						case <-ch:
+						default:
+						}
+					}
 				}
 			})
 			ch <- loadedMsg{s, err}
@@ -128,15 +139,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cols, m.rows = msg.Width, msg.Height
 	case tickMsg:
 		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
-		woke := !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap
+		if !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap {
+			m.wokeAt = now // Wi-Fi often needs a few seconds after waking
+		}
 		m.lastTick = now
-		if woke && !m.loading && len(m.repos) > 0 {
-			m.loading = true
-			return m, tea.Batch(m.tick(), m.load(false))
+		if !m.wokeAt.IsZero() && now.Sub(m.wokeAt) >= wakeDelay {
+			m.wokeAt = time.Time{}
+			if !m.loading && len(m.repos) > 0 {
+				m.loading = true
+				return m, tea.Batch(m.tick(), m.load(false))
+			}
 		}
 		return m, m.tick()
 	case progressMsg:
-		m.progress = msg.p
+		m.progress, m.progressAt = msg.p, m.cfg.Now().Round(0)
 		return m, next(msg.ch)
 	case loadedMsg:
 		m.loading = false
@@ -313,6 +329,9 @@ func (m Model) loadingView() string {
 		text = fmt.Sprintf("🌱 growing your garden\n\n%s %d/%d", Bar(p.Done, p.Total, width), p.Done, p.Total)
 		if p.Current != "" {
 			text += "\nfetching " + p.Current
+			if secs := int(m.cfg.Now().Round(0).Sub(m.progressAt).Seconds()); secs >= 2 {
+				text += fmt.Sprintf(" · %ds", secs) // a big repo's first sync can take a minute
+			}
 		}
 	}
 	return center(m.cols, m.rows, text)

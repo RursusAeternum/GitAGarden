@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -321,9 +322,64 @@ func TestWakingUpRefreshes(t *testing.T) {
 		t.Fatal("an ordinary tick should not reload")
 	}
 	now = now.Add(9 * time.Hour) // the lid was closed overnight
-	m, _ = step(m, tickMsg{})
-	if !m.loading {
-		t.Error("waking up should start a refresh")
+	if m, _ = step(m, tickMsg{}); m.loading {
+		t.Error("the refresh should wait a moment for the network to come back")
+	}
+	now = now.Add(11 * time.Second)
+	if m, _ = step(m, tickMsg{}); !m.loading {
+		t.Error("waking up should start a refresh once the network had a moment")
+	}
+}
+
+func TestProgressShowsTheLatestRepo(t *testing.T) {
+	release := make(chan struct{})
+	m := New(Config{
+		Load: func(_ context.Context, progress func(Progress)) (Snapshot, error) {
+			for i := 0; i < 20; i++ { // a burst from cached repos, then one slow fetch
+				progress(Progress{Done: i, Total: 21, Current: fmt.Sprintf("me/r%d", i)})
+			}
+			<-release
+			return garden3(), nil
+		},
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+	})
+	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	cmd := m.load(false)
+	for {
+		got := make(chan tea.Msg, 1)
+		go func() { got <- cmd() }()
+		select {
+		case msg := <-got:
+			pm, ok := msg.(progressMsg)
+			if !ok {
+				t.Fatalf("unexpected %T before the load was released", msg)
+			}
+			m, cmd = step(m, pm)
+			if pm.p.Current == "me/r19" {
+				close(release)
+				finishLoad(m, cmd)
+				return
+			}
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatalf("the screen is stuck on %q; the latest repo never arrived", m.progress.Current)
+		}
+	}
+}
+
+func TestLoadingScreenCountsSeconds(t *testing.T) {
+	now := t0
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return garden3(), nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m, _ = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ = step(m, progressMsg{p: Progress{Done: 1, Total: 3, Current: "me/big"}, ch: make(chan tea.Msg)})
+	now = now.Add(12 * time.Second) // a big repo's first sync
+	if v := visible(m.View()); !strings.Contains(v, "12s") {
+		t.Errorf("a long fetch should show it is still going: %q", v)
 	}
 }
 

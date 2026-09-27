@@ -149,9 +149,11 @@ func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 	if err != nil {
 		return fmt.Errorf("open pull requests: %w", err)
 	}
+	// Tokens without checks access get FORBIDDEN here: CI stays unknown
+	// (clear skies) rather than losing the rest of the repo.
 	branch, ci, err := c.branchStatus(ctx, owner, name)
 	if err != nil {
-		return fmt.Errorf("ci status: %w", err)
+		branch, ci = "", ""
 	}
 	r.OpenPRs, r.Branch, r.CI = nil, branch, ci
 	for _, n := range open {
