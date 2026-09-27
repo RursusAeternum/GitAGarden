@@ -37,6 +37,10 @@ type Config struct {
 	// Now is the wall clock the sky is drawn at (default time.Now). The
 	// replay clock moves hours per frame and would strobe day and night.
 	Now func() time.Time
+	// Sky is what the night sky shows; Stars is the replayed repo's GitHub
+	// stars, for the star sky.
+	Sky   scene.SkyMode
+	Stars int
 	// End is where the clock stops. Zero means tailDays after the last event,
 	// so a fake history always ends with a spell of neglect.
 	End time.Time
@@ -186,7 +190,8 @@ func (m Model) View() string {
 	if m.cfg.Now != nil {
 		now = m.cfg.Now
 	}
-	card := scene.Compose(scene.BedCols, []scene.Plot{plot}, now(), 1).Encode(m.cfg.Profile)
+	card := scene.Draw(scene.View{Cols: scene.BedCols, Plots: []scene.Plot{plot}, Now: now(), Seed: 1,
+		Sky: m.cfg.Sky, StarTotal: m.cfg.Stars}).Encode(m.cfg.Profile)
 
 	state := "▶ playing"
 	if !m.playing {

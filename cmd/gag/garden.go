@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
+	"github.com/RursusAeternum/GitAGarden/internal/config"
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/github"
 	"github.com/RursusAeternum/GitAGarden/internal/live"
@@ -44,21 +45,23 @@ func runGarden(args []string) error {
 			list = append(list, s)
 		}
 	}
-	src := source{names: list, owner: *user, limit: *limit, ttl: *ttl, demo: *demoFlag, decay: *decay, state: &sourceState{}}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	opts := merge(loadConfig(), set, settings{limit: *limit, repos: list, user: *user, refresh: *refresh, decay: *decay})
 
+	src := source{names: opts.repos, owner: opts.user, limit: opts.limit, ttl: *ttl, demo: *demoFlag, decay: opts.decay, state: &sourceState{}}
 	if *once || !term.IsTerminal(int(os.Stdout.Fd())) {
-		return printOnce(src, ahead, *simulate)
+		return printOnce(src, ahead, *simulate, opts.sky)
 	}
-	ttlSet := false
-	fs.Visit(func(f *flag.Flag) { ttlSet = ttlSet || f.Name == "ttl" })
-	if !ttlSet {
-		src.ttl = *refresh / 2 // so each background refresh really fetches
+	if !set["ttl"] {
+		src.ttl = opts.refresh / 2 // so each background refresh really fetches
 	}
 	label := ""
 	if ahead > 0 {
 		label = fmt.Sprintf("simulating %s ahead", *simulate)
 	}
-	m := live.New(live.Config{Load: src.snapshot, Refresh: *refresh, DecayDays: *decay, Ahead: ahead, Profile: colorProfile(), Label: label})
+	m := live.New(live.Config{Load: src.snapshot, Refresh: opts.refresh, DecayDays: opts.decay, Ahead: ahead,
+		Profile: colorProfile(), Label: label, Sky: opts.sky})
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -124,7 +127,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 }
 
 // printOnce prints one static frame: for pipes, scripts and -once.
-func printOnce(src source, ahead time.Duration, simulate string) error {
+func printOnce(src source, ahead time.Duration, simulate string, sky scene.SkyMode) error {
 	now := time.Now()
 	at := now.Add(ahead) // the moment the garden is drawn at
 	header := ""
@@ -132,9 +135,11 @@ func printOnce(src source, ahead time.Duration, simulate string) error {
 		header = fmt.Sprintf("simulating %s ahead: %s, nothing tended\n\n", simulate, at.Format("2006-01-02"))
 	}
 	var plots []scene.Plot
+	stars := 0
 	if src.demo {
 		for _, r := range demoGarden(now) {
 			plots = append(plots, live.Plot(r, at, src.decay))
+			stars += r.Stars
 		}
 	} else {
 		log, progress := logf, (func(done, total int, current string))(nil)
@@ -150,9 +155,11 @@ func printOnce(src source, ahead time.Duration, simulate string) error {
 		}
 		for _, r := range repos {
 			plots = append(plots, live.Plot(repoFor(r, now), at, src.decay))
+			stars += r.Stars
 		}
 	}
-	fmt.Print(header + scene.Compose(termWidth(), plots, at, 1).Encode(colorProfile()) + "\n")
+	frame := scene.Draw(scene.View{Cols: termWidth(), Plots: plots, Now: at, Seed: 1, Sky: sky, StarTotal: stars})
+	fmt.Print(header + frame.Encode(colorProfile()) + "\n")
 	return nil
 }
 
@@ -165,17 +172,18 @@ type demoRepo struct {
 	prDaysAgo  []int // open PRs, by age in days
 	newIssues  int
 	rising     bool
+	stars      int
 }
 
 var demo = []demoRepo{
-	{name: "gag-core", lang: "go", events: 160, ci: live.CIPassing, prDaysAgo: []int{2, 10}, rising: true},
-	{name: "rustyfs", lang: "rust", events: 90, idleDays: 12, ci: live.CIFailing},
-	{name: "notebook-api", lang: "python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4},
+	{name: "gag-core", lang: "go", events: 160, ci: live.CIPassing, prDaysAgo: []int{2, 10}, rising: true, stars: 31},
+	{name: "rustyfs", lang: "rust", events: 90, idleDays: 12, ci: live.CIFailing, stars: 12},
+	{name: "notebook-api", lang: "python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4, stars: 3},
 	{name: "old-blog", lang: "go", events: 120, idleDays: 400, finished: true},
 	{name: "dotfiles", lang: "shell", events: 40, idleDays: 35},
 	{name: "tiny-cli", lang: "rust", events: 12, idleDays: 1, prDaysAgo: []int{1}},
 	{name: "site-v2", lang: "typescript", events: 110, idleDays: 70},
-	{name: "lsystem", lang: "c", events: 60, idleDays: 200, finished: true},
+	{name: "lsystem", lang: "c", events: 60, idleDays: 200, finished: true, stars: 2},
 }
 
 // demoGarden grows the demo repos, with fake histories whose last event
@@ -189,7 +197,7 @@ func demoGarden(now time.Time) []live.Repo {
 			events[i].At = events[i].At.Add(shift)
 		}
 		lr := live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), events),
-			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising}
+			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising, Stars: r.stars}
 		for _, d := range r.prDaysAgo {
 			lr.PRs = append(lr.PRs, now.Add(-time.Duration(d)*24*time.Hour))
 		}
@@ -201,7 +209,7 @@ func demoGarden(now time.Time) []live.Repo {
 // repoFor grows a repo's plant and works out its signals as of now.
 func repoFor(r *github.Repo, now time.Time) live.Repo {
 	lr := live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()),
-		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI)}
+		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI), Stars: r.Stars}
 	for _, pr := range r.OpenPRs {
 		if !pr.Draft { // drafts aren't waiting on anyone
 			lr.PRs = append(lr.PRs, pr.CreatedAt)
@@ -238,4 +246,59 @@ func ciFor(state string) live.CI {
 		return live.CIPending
 	}
 	return live.CIUnknown
+}
+
+// settings are the garden's options once the config file and flags are
+// merged.
+type settings struct {
+	sky     scene.SkyMode
+	limit   int
+	repos   []string
+	user    string
+	refresh time.Duration
+	decay   float64
+}
+
+// merge takes each option from its flag when the flag was given on the
+// command line, and from the config file (which falls back to the defaults)
+// otherwise. The sky is set only in the file.
+func merge(file config.Config, set map[string]bool, flags settings) settings {
+	s := settings{sky: skyMode(file.Sky), limit: file.Limit, repos: file.Repos, user: file.User,
+		refresh: file.Refresh, decay: file.Decay}
+	if set["limit"] {
+		s.limit = flags.limit
+	}
+	if set["repos"] {
+		s.repos = flags.repos
+	}
+	if set["user"] {
+		s.user = flags.user
+	}
+	if set["refresh"] {
+		s.refresh = flags.refresh
+	}
+	if set["decay"] {
+		s.decay = flags.decay
+	}
+	if set["user"] && !set["repos"] {
+		s.repos = nil // -user asks for that garden, not the file's repo list
+	}
+	return s
+}
+
+func skyMode(s string) scene.SkyMode {
+	if s == "stars" {
+		return scene.SkyStars
+	}
+	return scene.SkyRandom
+}
+
+// loadConfig reads the config file, reporting problems on stderr; it runs
+// before any fullscreen view opens.
+func loadConfig() config.Config {
+	cfg, warns := config.Load(config.Path())
+	for _, w := range warns {
+		logf(w.String())
+	}
+	return cfg
 }

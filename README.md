@@ -89,6 +89,26 @@ gag garden -demo                             # fake repos, no network
   back to your cached repos.
 - **No token?** The live view shows the demo garden and tells you how to sign in.
 
+## Config file
+
+GAG reads `~/.config/gag/config` (or `$XDG_CONFIG_HOME/gag/config`): one
+`key = value` per line, `#` for comments. Flags on the command line win over
+the file. `gag config` shows where the file is and the settings in effect.
+
+```
+# ~/.config/gag/config
+sky = stars          # the night sky shows your GitHub stars (default: random)
+limit = 10
+refresh = 2m
+# repos = owner/a, owner/b
+# user = someone
+# decay = 30
+```
+
+With `sky = stars` the night sky has one star per GitHub star across the
+repos in your garden. Whatever the sky, a shooting star crosses it when one
+of your repos gets a new star while GAG is running, and the ticker says which.
+
 ## How plants grow
 
 `plant = Grow(repo name, species, events)`. The name seeds the RNG, and the

@@ -3,6 +3,7 @@
 //	gag          the live, animated garden of your GitHub repos (= gag garden)
 //	gag garden   the same; -once prints one static frame, -demo uses fake repos
 //	gag replay   time-lapse of one plant growing from its history
+//	gag config   where the config file is, and the settings in effect
 //	gag version
 package main
 
@@ -36,10 +37,12 @@ func main() {
 		err = runReplay(args)
 	case "garden":
 		err = runGarden(args)
+	case "config":
+		err = runConfig()
 	case "version", "--version", "-v":
 		fmt.Println("gag", version)
 	default:
-		err = fmt.Errorf("unknown command %q (want garden, replay or version)", cmd)
+		err = fmt.Errorf("unknown command %q (want garden, replay, config or version)", cmd)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gag:", err)
@@ -167,7 +170,8 @@ func runReplay(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished, Profile: colorProfile()}
+	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished, Profile: colorProfile(),
+		Sky: skyMode(loadConfig().Sky)}
 
 	if *repo != "" {
 		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, logf, nil)
@@ -175,7 +179,7 @@ func runReplay(args []string) error {
 			return err
 		}
 		r := repos[0]
-		cfg.Name, cfg.Events, cfg.End = r.Name(), r.Events(), time.Now()
+		cfg.Name, cfg.Events, cfg.End, cfg.Stars = r.Name(), r.Events(), time.Now(), r.Stars
 		cfg.Finished = cfg.Finished || r.Finished()
 		if !speciesSet {
 			cfg.Species = r.Species()

@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RursusAeternum/GitAGarden/internal/config"
 	"github.com/RursusAeternum/GitAGarden/internal/github"
 	"github.com/RursusAeternum/GitAGarden/internal/live"
+	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 func TestSnapshotFallsBackToDemoWithoutToken(t *testing.T) {
@@ -129,5 +131,40 @@ func TestDemoShowsTheSignals(t *testing.T) {
 	}
 	if storms == 0 || buds == 0 || snails == 0 || rising == 0 {
 		t.Errorf("demo should show every signal: storms %d, buds %d, snails %d, rising %d", storms, buds, snails, rising)
+	}
+}
+
+func TestMergePrefersFlagsThenTheFile(t *testing.T) {
+	file := config.Defaults()
+	file.Sky, file.Limit, file.Refresh, file.User = "stars", 12, 2*time.Minute, "octocat"
+	flags := settings{limit: 3, refresh: 5 * time.Minute, decay: 45}
+	got := merge(file, map[string]bool{"limit": true}, flags)
+	if got.sky != scene.SkyStars || got.limit != 3 || got.refresh != 2*time.Minute || got.user != "octocat" || got.decay != 45 {
+		t.Errorf("merged = %+v; want stars, limit 3 (flag), refresh 2m and user octocat (file), decay 45", got)
+	}
+}
+
+func TestUserFlagBeatsTheFilesRepoList(t *testing.T) {
+	file := config.Defaults()
+	file.Repos = []string{"me/a"}
+	got := merge(file, map[string]bool{"user": true}, settings{user: "octocat", limit: 8, refresh: 5 * time.Minute, decay: 45})
+	if got.user != "octocat" || got.repos != nil {
+		t.Errorf("merged = %+v; -user should show octocat's garden, not the file's repos", got)
+	}
+}
+
+func TestRepoForCarriesStars(t *testing.T) {
+	if lr := repoFor(&github.Repo{NameWithOwner: "me/x", Stars: 42}, time.Now()); lr.Stars != 42 {
+		t.Errorf("stars = %d, want 42", lr.Stars)
+	}
+}
+
+func TestDemoHasStars(t *testing.T) {
+	total := 0
+	for _, r := range demoGarden(time.Now()) {
+		total += r.Stars
+	}
+	if total == 0 {
+		t.Error("the demo should have stars for the star sky")
 	}
 }
