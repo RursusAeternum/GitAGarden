@@ -68,7 +68,7 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	src := "﻿# my garden\r\nsky = Stars  # opt in\r\n\r\nLIMIT=12\nrepos = me/a, other/b\nuser = octocat\nrefresh = 2m\ndecay = 30\n"
+	src := "\ufeff# my garden\r\nsky = Stars  # opt in\r\n\r\nLIMIT=12\nrepos = me/a, other/b\nuser = octocat\nrefresh = 2m\ndecay = 30\n"
 	c, warns := Parse(strings.NewReader(src))
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
@@ -284,7 +284,7 @@ func Parse(r io.Reader) (Config, []Warning) {
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
 		if n == 1 {
-			line = strings.TrimPrefix(line, "﻿")
+			line = strings.TrimPrefix(line, "\ufeff")
 		}
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
