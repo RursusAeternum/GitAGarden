@@ -44,7 +44,7 @@ func runGarden(args []string) error {
 			list = append(list, s)
 		}
 	}
-	src := source{names: list, owner: *user, limit: *limit, ttl: *ttl, demo: *demoFlag, decay: *decay}
+	src := source{names: list, owner: *user, limit: *limit, ttl: *ttl, demo: *demoFlag, decay: *decay, state: &sourceState{}}
 
 	if *once || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return printOnce(src, ahead, *simulate)
@@ -67,6 +67,12 @@ type source struct {
 	ttl   time.Duration
 	demo  bool
 	decay float64
+	state *sourceState // shared across a live session's loads; nil for one-shot use
+}
+
+// sourceState remembers what a live session has already shown.
+type sourceState struct {
+	real bool // a real GitHub garden has loaded
 }
 
 // snapshot loads the repos and grows their plants for the live view. It
@@ -77,12 +83,19 @@ func (s source) snapshot(ctx context.Context) (live.Snapshot, error) {
 	if s.demo {
 		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden"}, nil
 	}
-	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, s.ttl, nil)
-	if errors.Is(err, github.ErrNoToken) {
+	ttl := s.ttl
+	if live.Forced(ctx) {
+		ttl = 0 // the user pressed r: fetch, don't reuse the cache
+	}
+	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil)
+	if errors.Is(err, github.ErrNoToken) && (s.state == nil || !s.state.real) {
 		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login"}, nil
 	}
 	if err != nil {
-		return live.Snapshot{}, err
+		return live.Snapshot{}, err // mid-session, even a lost token keeps the real garden on screen
+	}
+	if s.state != nil {
+		s.state.real = true
 	}
 	snap := live.Snapshot{Offline: offline, FetchedAt: now}
 	weekAgo := now.Add(-7 * 24 * time.Hour)

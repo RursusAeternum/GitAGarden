@@ -69,12 +69,25 @@ func New(cfg Config) Model {
 	return Model{cfg: cfg, start: cfg.Now(), loading: true, ticker: true}
 }
 
-func (m Model) Init() tea.Cmd { return tea.Batch(m.load(), m.tick()) }
+func (m Model) Init() tea.Cmd { return tea.Batch(m.load(false), m.tick()) }
 
-func (m Model) load() tea.Cmd {
+type forceKey struct{}
+
+// Forced reports whether a load was asked for by the user (r), so it should
+// bypass caches.
+func Forced(ctx context.Context) bool {
+	forced, _ := ctx.Value(forceKey{}).(bool)
+	return forced
+}
+
+func (m Model) load(force bool) tea.Cmd {
 	load := m.cfg.Load
 	return func() tea.Msg {
-		s, err := load(context.Background())
+		ctx := context.Background()
+		if force {
+			ctx = context.WithValue(ctx, forceKey{}, true)
+		}
+		s, err := load(ctx)
 		return loadedMsg{s, err}
 	}
 }
@@ -95,7 +108,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadErr = msg.err
 		if msg.err == nil {
 			m.snap = msg.snap
-			m.repos = merge(m.repos, msg.snap.Repos)
+			if msg.snap.Offline && len(m.repos) > 0 {
+				m.repos = updateKnown(m.repos, msg.snap.Repos)
+			} else {
+				m.repos = merge(m.repos, msg.snap.Repos)
+			}
 		}
 		gen := m.gen
 		return m, tea.Tick(m.cfg.Refresh, func(time.Time) tea.Msg { return refreshMsg{gen} })
@@ -104,7 +121,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
-		return m, m.load()
+		return m, m.load(false)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
@@ -112,7 +129,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if !m.loading {
 				m.loading = true
-				return m, m.load()
+				return m, m.load(true)
 			}
 		case "t":
 			m.ticker = !m.ticker
@@ -142,6 +159,24 @@ func merge(old, fresh []Repo) []Repo {
 		if !seen[r.Name] {
 			out = append(out, r)
 		}
+	}
+	return out
+}
+
+// updateKnown refreshes the plants already shown from offline data without
+// adding, dropping or reordering any: a cache is no evidence that the garden
+// itself changed.
+func updateKnown(shown, cached []Repo) []Repo {
+	byName := make(map[string]Repo, len(cached))
+	for _, r := range cached {
+		byName[r.Name] = r
+	}
+	out := make([]Repo, len(shown))
+	for i, r := range shown {
+		if c, ok := byName[r.Name]; ok {
+			r = c
+		}
+		out[i] = r
 	}
 	return out
 }

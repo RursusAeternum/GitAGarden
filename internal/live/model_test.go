@@ -47,7 +47,7 @@ func step(m Model, msg tea.Msg) (Model, tea.Cmd) {
 // ready sizes the window and runs the first load.
 func ready(m Model, cols, rows int) Model {
 	m, _ = step(m, tea.WindowSizeMsg{Width: cols, Height: rows})
-	m, _ = step(m, m.load()())
+	m, _ = step(m, m.load(false)())
 	return m
 }
 
@@ -192,5 +192,51 @@ func BenchmarkLiveFrame(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = m.View()
+	}
+}
+
+func TestOfflineRefreshKeepsThePlantSet(t *testing.T) {
+	m := ready(newModel(garden3(), nil, t0), 100, 30) // bloom, quiet, seed
+	stranger, bloom := grow("stranger", 10, 0, t0), grow("bloom", 61, 4, t0)
+	m, _ = step(m, loadedMsg{snap: Snapshot{Repos: []Repo{stranger, bloom}, Offline: true, FetchedAt: t0.Add(-time.Hour)}})
+	var got []string
+	for _, r := range m.repos {
+		got = append(got, r.Name)
+	}
+	if strings.Join(got, ",") != "bloom,quiet,seed" {
+		t.Errorf("plants = %v; offline data must not add, drop or reorder plants", got)
+	}
+	if m.repos[0].Plant.Pushes != 61 {
+		t.Error("known plants should still be updated from offline data")
+	}
+}
+
+func TestFirstLoadMayBeOffline(t *testing.T) {
+	snap := garden3()
+	snap.Offline = true
+	if m := ready(newModel(snap, nil, t0), 80, 24); len(m.repos) != 3 {
+		t.Errorf("an offline first load should still show the cached garden, got %d plants", len(m.repos))
+	}
+}
+
+func TestManualRefreshForcesAFetch(t *testing.T) {
+	var forced []bool
+	m := New(Config{
+		Load: func(ctx context.Context) (Snapshot, error) {
+			forced = append(forced, Forced(ctx))
+			return garden3(), nil
+		},
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+	})
+	m = ready(m, 80, 24)
+	m, cmd := step(m, key("r"))
+	cmd()
+	m, cmd = step(m, refreshMsg{gen: m.gen})
+	if cmd != nil {
+		cmd()
+	}
+	if len(forced) < 2 || forced[0] || !forced[1] {
+		t.Errorf("forced = %v, want the initial load unforced and r forced", forced)
 	}
 }

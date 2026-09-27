@@ -147,6 +147,9 @@ func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 type Store struct {
 	path  string
 	Repos map[string]*Repo `json:"repos"`
+	// Viewer is the login whose repos ListRepos last returned, so the offline
+	// fallback shows your own garden and not repos cached by -user or -repos.
+	Viewer string `json:"viewer,omitempty"`
 }
 
 // OpenStore loads the cache from the user cache dir (~/.cache/gag on Linux,

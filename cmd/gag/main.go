@@ -81,6 +81,14 @@ func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl
 		if err != nil {
 			return cachedRepos(store, nil, owner, limit, err)
 		}
+		if owner == "" && len(metas) > 0 {
+			if login, _, _ := strings.Cut(metas[0].NameWithOwner, "/"); login != store.Viewer {
+				store.Viewer = login
+				if err := store.Save(); err != nil && log != nil {
+					log("could not save the cache: " + err.Error())
+				}
+			}
+		}
 	}
 
 	repos, err := github.Sync(ctx, c, store, metas, ttl, log)
@@ -104,8 +112,14 @@ func cachedRepos(store *github.Store, names []string, owner string, limit int, c
 			}
 		}
 	} else {
+		if owner == "" {
+			owner = store.Viewer // your own garden, not repos cached by -user or -repos
+		}
+		if owner == "" {
+			return nil, false, cause // never listed online, so whose repos are yours is unknown
+		}
 		for _, r := range store.Repos {
-			if owner == "" || strings.EqualFold(strings.SplitN(r.NameWithOwner, "/", 2)[0], owner) {
+			if strings.EqualFold(strings.SplitN(r.NameWithOwner, "/", 2)[0], owner) {
 				repos = append(repos, r)
 			}
 		}
