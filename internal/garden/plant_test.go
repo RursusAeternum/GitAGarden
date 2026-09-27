@@ -3,6 +3,8 @@ package garden
 import (
 	"testing"
 	"time"
+
+	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -43,8 +45,8 @@ func TestLongHistoriesDoNotPanic(t *testing.T) {
 	for _, sp := range AllSpecies {
 		for _, name := range []string{"a", "b", "c", "d", "e"} {
 			p := Grow(name, sp, FakeHistory(name, 2000, t0))
-			_ = Render(p, RenderOpts{Now: t0.Add(24 * time.Hour * 400)})
-			_ = Card(p, RenderOpts{Now: t0, Finished: true})
+			c := pixel.New(Width+4, Height+4)
+			Paint(c, p, (Width+4)/2, Height, Style{Health: 0.2, Sway: 3})
 		}
 	}
 }

@@ -15,12 +15,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/github"
 	"github.com/RursusAeternum/GitAGarden/internal/replay"
+	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 // version is stamped at release time by GoReleaser.
@@ -148,7 +147,7 @@ func runReplay(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished}
+	cfg := replay.Config{Name: *name, Species: sp, DecayDays: *decay, Finished: *finished, Profile: colorProfile()}
 
 	if *repo != "" {
 		repos, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl)
@@ -201,6 +200,7 @@ func runGarden(args []string) error {
 		}
 	}
 
+	prof := colorProfile()
 	render := func() (string, error) {
 		now := time.Now()
 		at := now.Add(ahead) // the moment the garden is drawn at
@@ -208,19 +208,19 @@ func runGarden(args []string) error {
 		if ahead > 0 {
 			header = fmt.Sprintf("simulating %s ahead: %s, nothing tended\n\n", *simulate, at.Format("2006-01-02"))
 		}
+		var plots []scene.Plot
 		if *demo {
-			return header + layout(demoCards(now, at, *decay)), nil
+			plots = demoPlots(now, at, *decay)
+		} else {
+			repos, err := loadRepos(context.Background(), list, *user, *limit, *ttl)
+			if err != nil {
+				return "", err
+			}
+			for _, r := range repos {
+				plots = append(plots, plotFor(garden.Grow(r.Name(), r.Species(), r.Events()), r.Name(), r.Finished(), at, *decay))
+			}
 		}
-		repos, err := loadRepos(context.Background(), list, *user, *limit, *ttl)
-		if err != nil {
-			return "", err
-		}
-		var cards []string
-		for _, r := range repos {
-			p := garden.Grow(r.Name(), r.Species(), r.Events())
-			cards = append(cards, garden.Card(p, garden.RenderOpts{Now: at, DecayDays: *decay, Finished: r.Finished()}))
-		}
-		return header + layout(cards), nil
+		return header + scene.Compose(termWidth(), plots, at, 1).Encode(prof) + "\n", nil
 	}
 
 	if *watch <= 0 {
@@ -237,28 +237,6 @@ func runGarden(args []string) error {
 		}
 		time.Sleep(*watch)
 	}
-}
-
-// layout tiles cards into rows that fit the terminal.
-func layout(cards []string) string {
-	width := 100
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		width = w
-	}
-	perRow := max(1, (width+1)/(garden.CardWidth+1))
-	var b strings.Builder
-	for i := 0; i < len(cards); i += perRow {
-		row := cards[i:min(i+perRow, len(cards))]
-		spaced := make([]string, 0, 2*len(row))
-		for j, c := range row {
-			if j > 0 {
-				spaced = append(spaced, " ")
-			}
-			spaced = append(spaced, c)
-		}
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, spaced...) + "\n\n")
-	}
-	return b.String()
 }
 
 type demoRepo struct {
@@ -279,10 +257,20 @@ var demo = []demoRepo{
 	{"lsystem", "c", 60, 200, true},
 }
 
-// demoCards builds histories relative to now and draws them at at, which is
-// later than now when simulating.
-func demoCards(now, at time.Time, decay float64) []string {
-	var cards []string
+// plotFor bundles a grown plant with its health and status at time at.
+func plotFor(p *garden.Plant, name string, finished bool, at time.Time, decay float64) scene.Plot {
+	h := garden.Health(p, at, decay)
+	if finished {
+		h = 1
+	}
+	return scene.Plot{Plant: p, Style: garden.Style{Health: h}, Finished: finished,
+		Name: name, Status: garden.Status(p, at, finished)}
+}
+
+// demoPlots builds fake histories relative to now and draws them at at,
+// which is later than now when simulating.
+func demoPlots(now, at time.Time, decay float64) []scene.Plot {
+	var plots []scene.Plot
 	for _, r := range demo {
 		// Shift the fake history so its last event lands idleDays ago.
 		events := garden.FakeHistory(r.name, r.events, now)
@@ -291,7 +279,7 @@ func demoCards(now, at time.Time, decay float64) []string {
 			events[i].At = events[i].At.Add(shift)
 		}
 		p := garden.Grow(r.name, garden.SpeciesFor(r.lang), events)
-		cards = append(cards, garden.Card(p, garden.RenderOpts{Now: at, DecayDays: decay, Finished: r.finished}))
+		plots = append(plots, plotFor(p, r.name, r.finished, at, decay))
 	}
-	return cards
+	return plots
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
+	"github.com/RursusAeternum/GitAGarden/internal/pixel"
+	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 const (
@@ -30,6 +32,8 @@ type Config struct {
 	Events    []garden.Event
 	DecayDays float64
 	Finished  bool
+	// Profile is the color depth for the plant drawing.
+	Profile pixel.Profile
 	// End is where the clock stops. Zero means tailDays after the last event,
 	// so a fake history always ends with a spell of neglect.
 	End time.Time
@@ -169,8 +173,13 @@ func bar(frac float64, width int) string {
 func (m Model) View() string {
 	events := m.cfg.Events[:m.applied]
 	p := garden.Grow(m.cfg.Name, m.cfg.Species, events)
-	opts := garden.RenderOpts{Now: m.clock, DecayDays: m.cfg.DecayDays, Finished: m.cfg.Finished}
-	card := garden.Card(p, opts)
+	health := garden.Health(p, m.clock, m.cfg.DecayDays)
+	if m.cfg.Finished {
+		health = 1
+	}
+	plot := scene.Plot{Plant: p, Style: garden.Style{Health: health}, Finished: m.cfg.Finished,
+		Name: m.cfg.Name, Status: garden.Status(p, m.clock, m.cfg.Finished)}
+	card := scene.Compose(scene.BedCols, []scene.Plot{plot}, m.clock, 1).Encode(m.cfg.Profile)
 
 	state := "▶ playing"
 	if !m.playing {
@@ -179,10 +188,6 @@ func (m Model) View() string {
 	progress := 0.0
 	if span := m.end.Sub(m.start); span > 0 {
 		progress = float64(m.clock.Sub(m.start)) / float64(span)
-	}
-	health := garden.Health(p, m.clock, m.cfg.DecayDays)
-	if m.cfg.Finished {
-		health = 1
 	}
 
 	var b strings.Builder
