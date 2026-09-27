@@ -67,6 +67,12 @@ func Darkness(t time.Time) float64 {
 // DrawSky fills pixel rows [y0, y1) with the sky at time t, with stars.
 // The sun or moon is drawn separately, once per frame, by Compose.
 func DrawSky(c *pixel.Canvas, t time.Time, y0, y1 int, seed int64) {
+	skyGradient(c, t, y0, y1)
+	DrawStars(c, y0, y1, seed, Darkness(t))
+}
+
+// skyGradient fills pixel rows [y0, y1) with the sky's colour at time t.
+func skyGradient(c *pixel.Canvas, t time.Time, y0, y1 int) {
 	top, bot := SkyAt(t)
 	span := float64(max(1, y1-y0-1))
 	for y := y0; y < y1; y++ {
@@ -75,7 +81,6 @@ func DrawSky(c *pixel.Canvas, t time.Time, y0, y1 int, seed int64) {
 			c.Set(x, y, col)
 		}
 	}
-	DrawStars(c, y0, y1, seed, Darkness(t))
 }
 
 // DrawStars scatters seeded stars over the upper part of the band, as
