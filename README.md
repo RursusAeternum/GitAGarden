@@ -1,8 +1,10 @@
 # GAG — Git a Garden
 
-A terminal garden of your git projects. Each repo is a plant that grows a
-little with every push and merge, gets weeds for open issues, wilts when
-neglected, and goes under a glass cloche when it's finished.
+A terminal garden of your git projects, drawn in true-color pixel art.
+Each repo is a plant in a terracotta pot that grows a little with every
+push and merge, gets weeds for open issues, wilts when neglected, and goes
+under a glass cloche when it's finished, all under a sky that follows your
+clock.
 
 ## Install
 
@@ -44,6 +46,10 @@ gag                                  # your GitHub repos as a garden
 gag replay                           # watch one (fake) plant grow from its history
 gag replay -species cactus -name rustyfs -events 300
 ```
+
+GAG draws with half-block characters and true color. If your terminal
+supports true color but GAG shows banded colors, force it with
+`GAG_COLOR=truecolor gag`. Use `GAG_COLOR=256` to force 256 colors.
 
 Replay keys: `space` play/pause · `←/→` step event · `+/-` speed · `s` cycle
 species · `f` toggle glass · `n` new history · `r` restart · `G` jump to end · `q` quit.
