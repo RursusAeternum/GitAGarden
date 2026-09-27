@@ -2,8 +2,6 @@ package garden
 
 import (
 	"fmt"
-	"hash/fnv"
-	"math"
 	"strings"
 	"time"
 
@@ -13,28 +11,10 @@ import (
 // CardWidth is the rendered width of one plant including its glass casing.
 const CardWidth = Width + 4
 
-const defaultDecayDays = 45
-
 type RenderOpts struct {
 	Now       time.Time
 	DecayDays float64 // days of neglect until fully wilted; 0 means default
 	Finished  bool    // finished projects live under glass, preserved at their best
-}
-
-// Health is 1 for a recently tended plant, falling to 0 after DecayDays of
-// neglect (with a two-day grace period).
-func Health(p *Plant, now time.Time, decayDays float64) float64 {
-	if p.LastTended.IsZero() {
-		return 1
-	}
-	if decayDays <= 0 {
-		decayDays = defaultDecayDays
-	}
-	idle := now.Sub(p.LastTended).Hours()/24 - 2
-	if idle <= 0 {
-		return 1
-	}
-	return math.Max(0, 1-idle/decayDays)
 }
 
 type rgb struct{ r, g, b float64 }
@@ -48,17 +28,17 @@ var (
 	leafStops = []stop{{0, rgb{122, 82, 48}}, {0.3, rgb{200, 155, 60}}, {0.6, rgb{168, 192, 48}}, {1, rgb{95, 215, 95}}}
 	bodyStops = []stop{{0, rgb{150, 125, 80}}, {0.4, rgb{140, 160, 70}}, {1, rgb{60, 170, 90}}}
 
-	stemColor    = lipgloss.Color("#a0785a")
-	deadStem     = lipgloss.Color("#6e5a4a")
-	flowerColor  = lipgloss.Color("#ff87d7")
-	wiltedFlower = lipgloss.Color("#8a6a6a")
-	rotColor     = lipgloss.Color("#7a5230")
-	fruitColor   = lipgloss.Color("#ff5f5f")
-	starColor    = lipgloss.Color("#ffd75f")
-	weedColor    = lipgloss.Color("#9a9a3a")
-	potColor     = lipgloss.Color("#d7875f")
-	glassColor   = lipgloss.Color("#6fa8b8")
-	dimColor     = lipgloss.Color("#808080")
+	stemColor       = lipgloss.Color("#a0785a")
+	deadStem        = lipgloss.Color("#6e5a4a")
+	flowerColor     = lipgloss.Color("#ff87d7")
+	wiltedFlower    = lipgloss.Color("#8a6a6a")
+	rotColor        = lipgloss.Color("#7a5230")
+	asciiFruitColor = lipgloss.Color("#ff5f5f")
+	starColor       = lipgloss.Color("#ffd75f")
+	asciiWeedColor  = lipgloss.Color("#9a9a3a")
+	potColor        = lipgloss.Color("#d7875f")
+	glassColor      = lipgloss.Color("#6fa8b8")
+	dimColor        = lipgloss.Color("#808080")
 
 	weedGlyphs = []rune("ψw")
 )
@@ -75,14 +55,6 @@ func shade(stops []stop, h float64) lipgloss.Color {
 		}
 	}
 	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", int(c.r), int(c.g), int(c.b)))
-}
-
-// hash01 gives a stable pseudo-random value per cell, so the same leaves fall
-// first every time rather than flickering between frames.
-func hash01(name string, x, y int) float64 {
-	h := fnv.New32a()
-	fmt.Fprintf(h, "%s:%d:%d", name, x, y)
-	return float64(h.Sum32()) / math.MaxUint32
 }
 
 func paint(c lipgloss.Color, s string) string {
@@ -117,7 +89,7 @@ func (p *Plant) cellString(x, y int, h float64) string {
 		if c.Glyph == '✦' {
 			return paint(starColor, string(c.Glyph))
 		}
-		return paint(fruitColor, string(c.Glyph))
+		return paint(asciiFruitColor, string(c.Glyph))
 	}
 	return " "
 }
@@ -140,7 +112,7 @@ func Render(p *Plant, o RenderOpts) string {
 		var sb strings.Builder
 		for x := 0; x < Width; x++ {
 			if y == ground && weeds[x] && p.Grid[y][x].Kind == Empty {
-				sb.WriteString(paint(weedColor, string(weedGlyphs[x%len(weedGlyphs)])))
+				sb.WriteString(paint(asciiWeedColor, string(weedGlyphs[x%len(weedGlyphs)])))
 				continue
 			}
 			sb.WriteString(p.cellString(x, y, h))
@@ -188,7 +160,7 @@ func Card(p *Plant, o RenderOpts) string {
 	default:
 		h := Health(p, o.Now, o.DecayDays)
 		status = paint(shade(leafStops, h), ago(o.Now.Sub(p.LastTended))) +
-			paint(dimColor, " · ") + paint(weedColor, issues(p.OpenIssues))
+			paint(dimColor, " · ") + paint(asciiWeedColor, issues(p.OpenIssues))
 	}
 	center := func(s string) string { return lipgloss.PlaceHorizontal(CardWidth, lipgloss.Center, s) }
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -196,24 +168,4 @@ func Card(p *Plant, o RenderOpts) string {
 		center(lipgloss.NewStyle().Bold(true).Render(string(name))),
 		center(status),
 	)
-}
-
-func ago(d time.Duration) string {
-	switch {
-	case d < time.Hour:
-		return "just now"
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	}
-	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-}
-
-func issues(n int) string {
-	switch n {
-	case 0:
-		return "no issues"
-	case 1:
-		return "1 issue"
-	}
-	return fmt.Sprintf("%d issues", n)
 }
