@@ -88,7 +88,7 @@ type sourceState struct {
 func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (live.Snapshot, error) {
 	now := time.Now()
 	if s.demo {
-		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden"}, nil
+		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden", Demo: true}, nil
 	}
 	ttl := s.ttl
 	if live.Forced(ctx) {
@@ -102,7 +102,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 	}
 	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil, report)
 	if errors.Is(err, github.ErrNoToken) && (s.state == nil || !s.state.real) {
-		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login"}, nil
+		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login", Demo: true}, nil
 	}
 	if err != nil {
 		return live.Snapshot{}, err // mid-session, even a lost token keeps the real garden on screen

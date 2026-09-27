@@ -38,4 +38,5 @@ type Snapshot struct {
 	FetchedAt time.Time // when the data was fetched (the oldest repo's fetch)
 	Offline   bool      // GitHub was unreachable; this is cached data
 	Note      string    // replaces the ticker's freshness status, e.g. demo mode
+	Demo      bool      // fake demo repos: their stars are no baseline for real ones
 }

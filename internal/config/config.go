@@ -144,7 +144,8 @@ func (c *Config) set(key, val string) string {
 			if r = strings.TrimSpace(r); r == "" {
 				continue
 			}
-			if !strings.Contains(r, "/") {
+			owner, name, ok := strings.Cut(r, "/")
+			if !ok || owner == "" || name == "" || strings.Contains(name, "/") || strings.ContainsAny(r, " \t") {
 				return fmt.Sprintf("repos entry %q isn't owner/name; ignoring this line", r)
 			}
 			repos = append(repos, r)

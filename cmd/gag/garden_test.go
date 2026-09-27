@@ -24,6 +24,9 @@ func TestSnapshotFallsBackToDemoWithoutToken(t *testing.T) {
 	if !strings.Contains(snap.Note, "no GitHub token") {
 		t.Errorf("note = %q, want it to explain the missing token", snap.Note)
 	}
+	if !snap.Demo {
+		t.Error("the demo fallback should be marked Demo, so its stars are no baseline")
+	}
 	if len(snap.Repos) != len(demo) {
 		t.Errorf("repos = %d, want the %d demo repos", len(snap.Repos), len(demo))
 	}
@@ -36,6 +39,9 @@ func TestDemoSnapshot(t *testing.T) {
 	}
 	if snap.Note != "demo garden" || len(snap.Repos) != len(demo) || snap.FetchedAt.IsZero() {
 		t.Errorf("snapshot = note %q, %d repos, fetched %v", snap.Note, len(snap.Repos), snap.FetchedAt)
+	}
+	if !snap.Demo {
+		t.Error("the demo garden should be marked Demo")
 	}
 }
 

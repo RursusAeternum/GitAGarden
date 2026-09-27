@@ -63,6 +63,7 @@ type Model struct {
 	stars      map[string]int   // star counts from the last online load; nil before the first
 	shots      []scene.Shooting // queued and flying shooting stars
 	notes      []starNote       // ticker notes about new stars
+	rotFrom    time.Time        // the ticker's rotation restarts here when a star note arrives
 }
 
 type (
@@ -174,7 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.repos = merge(m.repos, msg.snap.Repos)
 			}
-			if !msg.snap.Offline { // cached counts are no news
+			if !msg.snap.Offline && !msg.snap.Demo { // cached or fake counts are no news
 				m.noticeNewStars(msg.snap.Repos)
 			}
 		}
@@ -257,19 +258,26 @@ type starNote struct {
 // cross the sky. The first load only sets the baseline; repos that just
 // joined the garden don't count, and neither do lost stars.
 func (m *Model) noticeNewStars(repos []Repo) {
+	named := make(map[string]int, len(repos))
+	for _, r := range repos {
+		named[r.Name]++
+	}
 	counts := make(map[string]int, len(repos))
 	for _, r := range repos {
-		counts[r.Name] = r.Stars
+		if named[r.Name] == 1 { // same-named repos (a fork and its upstream) can't be told apart
+			counts[r.Name] = r.Stars
+		}
 	}
 	if m.stars != nil {
 		wall, at, shots := m.cfg.Now(), m.now(), 0
 		for _, r := range repos {
 			before, known := m.stars[r.Name]
 			gained := r.Stars - before
-			if !known || gained <= 0 {
+			if _, unique := counts[r.Name]; !known || !unique || gained <= 0 {
 				continue
 			}
 			m.notes = append(m.notes, starNote{repo: r.Name, n: gained, until: wall.Add(noteFor)})
+			m.rotFrom = wall // show the note now, while its shooting star flies
 			for i := 0; i < gained && shots < maxShots; i++ {
 				m.shots = append(m.shots, scene.Shooting{Start: at.Add(time.Duration(shots) * shotGap), Seed: at.UnixMilli() + int64(len(m.shots))})
 				shots++
@@ -445,7 +453,11 @@ func (m Model) tickerLine(at time.Time) string {
 	if m.cfg.Sky == scene.SkyStars && len(items) == 1 && items[0].Icon == calmIcon {
 		items[0].Text += fmt.Sprintf(" · ⭐ %d", m.starTotal())
 	}
-	return Line(append(m.starItems(), items...), m.elapsed(), status, m.cols)
+	elapsed := m.elapsed()
+	if !m.rotFrom.IsZero() {
+		elapsed = m.cfg.Now().Sub(m.rotFrom)
+	}
+	return Line(append(m.starItems(), items...), elapsed, status, m.cols)
 }
 
 // center wraps text to the window's width and centers it in the window.

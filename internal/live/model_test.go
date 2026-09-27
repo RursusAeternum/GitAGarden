@@ -489,3 +489,52 @@ func TestCalmLineShowsTheStarTotalInStarMode(t *testing.T) {
 		t.Errorf("ticker = %q", last)
 	}
 }
+
+func TestStarNoteShowsWhileItsShotFlies(t *testing.T) {
+	now := t0
+	var snap Snapshot
+	for i := 0; i < 8; i++ { // 24 attention items: longer than a note's minute to cycle through
+		r := grow(strings.Repeat("r", i+1), 40, 0, t0.Add(-40*24*time.Hour))
+		r.CI = CIFailing
+		r.PRs = []time.Time{t0.Add(-time.Hour)}
+		snap.Repos = append(snap.Repos, r)
+	}
+	snap.FetchedAt = t0
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return snap, nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m = ready(m, 100, 30)
+	now = now.Add(5 * time.Second) // the ticker has moved past its first item
+	m, _ = step(m, loadedMsg{snap: starred(snap, 1)})
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "⭐ New star on r") {
+		t.Errorf("while the shooting star flies the ticker says %q", last)
+	}
+}
+
+func TestSameShortNamesDontShoot(t *testing.T) {
+	a, b := grow("gag", 40, 0, t0), grow("gag", 30, 0, t0) // me/gag and upstream/gag
+	a.Stars, b.Stars = 100, 2
+	snap := Snapshot{Repos: []Repo{a, b}, FetchedAt: t0}
+	m := ready(newModel(snap, nil, t0), 100, 30)
+	for i := 0; i < 3; i++ {
+		m, _ = step(m, loadedMsg{snap: snap}) // nothing changed
+	}
+	if len(m.shots) != 0 || len(m.notes) != 0 {
+		t.Errorf("unchanged refreshes gave %d shots and notes %+v", len(m.shots), m.notes)
+	}
+}
+
+func TestDemoGardenIsNoStarBaseline(t *testing.T) {
+	demo := Snapshot{Repos: []Repo{grow("dotfiles", 40, 0, t0)}, FetchedAt: t0, Demo: true,
+		Note: "demo · no GitHub token: run gh auth login"}
+	m := ready(newModel(demo, nil, t0), 100, 30)
+	real := Snapshot{Repos: []Repo{grow("dotfiles", 12, 0, t0)}, FetchedAt: t0}
+	real.Repos[0].Stars = 4
+	m, _ = step(m, loadedMsg{snap: real}) // the user signed in
+	if len(m.shots) != 0 || len(m.notes) != 0 {
+		t.Errorf("signing in gave %d shots and notes %+v", len(m.shots), m.notes)
+	}
+}

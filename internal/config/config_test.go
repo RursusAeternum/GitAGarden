@@ -116,3 +116,12 @@ func TestShortDurations(t *testing.T) {
 		}
 	}
 }
+
+func TestReposMustBeOwnerSlashName(t *testing.T) {
+	for _, line := range []string{"repos = me/a me/b", "repos = /a", "repos = me/", "repos = me/a/b", "repos = me/a, other"} {
+		c, warns := Parse(strings.NewReader(line))
+		if len(warns) != 1 || c.Repos != nil || c.From["repos"] != Default {
+			t.Errorf("%q: repos %v from %q, warnings %v; want one warning and no repos", line, c.Repos, c.From["repos"], warns)
+		}
+	}
+}
