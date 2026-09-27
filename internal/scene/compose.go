@@ -28,6 +28,8 @@ type Plot struct {
 	Style        garden.Style
 	Finished     bool
 	Name, Status string
+	Weather      Weather // the plant's own sky: CI running or failing
+	Snail        bool    // a burst of new issues
 }
 
 var (
@@ -55,6 +57,11 @@ func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int) {
 		DrawCloche(c, cx, oy+2, oy+potTop+PotH-1, BedCols-3)
 		if v.Motion {
 			DrawGlint(c, v.Now, cx, oy+2, oy+potTop+PotH-1, BedCols-3, nameSeed(pl.Name))
+		}
+	} else {
+		drawWeather(c, cx, oy, pl.Weather, v.Now)
+		if pl.Snail {
+			drawSnail(c, cx, oy, v.Now)
 		}
 	}
 	labelRow := oy/2 + BedRows - 2

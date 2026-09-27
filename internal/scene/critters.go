@@ -17,10 +17,10 @@ var (
 // Host is the pixel a critter circles: the middle of a flowering plant.
 type Host struct{ X, Y int }
 
-// Flowering reports whether a plot attracts critters: a healthy, blooming
+// Flowering reports whether a plot attracts critters: a healthy plant in bloom
 // plant that isn't under glass.
 func Flowering(pl Plot) bool {
-	return !pl.Finished && pl.Style.Health >= 0.6 && pl.Plant.Flowers() > 0
+	return !pl.Finished && pl.Style.Health >= 0.6 && pl.Plant.Blooming(pl.Style.Now) > 0
 }
 
 // DrawCritters draws up to three bees and butterflies looping around the
