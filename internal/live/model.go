@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"math"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -63,8 +64,11 @@ type Model struct {
 	progressAt time.Time        // when the last progress update arrived
 	stars      map[string]int   // star counts from the last online load; nil before the first
 	shots      []scene.Shooting // queued and flying shooting stars
-	notes      []starNote       // ticker notes about new stars
-	rotFrom    time.Time        // the ticker's rotation restarts here when a star note arrives
+	notes      []note           // ticker notes about new stars and other changes
+	seen       []Repo           // the repos at the last online load; nil before the first
+	seenDemo   bool             // whether that load was the demo garden
+	reacts     []reaction       // change animations, playing or waiting
+	visits     []visit          // the camera's visits to off-screen plants that changed
 	sel        selection        // the selected plant and its card
 	cam        camera           // panning, held while a plant is selected
 }
@@ -154,6 +158,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.sel.name != "" && m.cfg.Now().Round(0).Sub(m.sel.lastInput) >= idleClear {
 			m.unselect()
 		}
+		m.runVisits()
 		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
 		if !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap {
 			m.wokeAt = now // Wi-Fi often needs a few seconds after waking
@@ -184,6 +189,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !msg.snap.Offline && !msg.snap.Demo { // cached or fake counts are no news
 				m.noticeNewStars(msg.snap.Repos)
+			}
+			if !msg.snap.Offline {
+				m.noticeChanges(msg.snap)
 			}
 			if m.sel.name != "" && m.selected() < 0 {
 				m.unselect() // its repo left the garden
@@ -282,11 +290,14 @@ func updateKnown(shown, cached []Repo) []Repo {
 	return out
 }
 
-// starNote tells the ticker that repo got n new stars, until until.
-type starNote struct {
-	repo  string
-	n     int
-	until time.Time
+// note is a ticker note about something that just happened, shown from from
+// until until, ahead of the attention items. A star note counts new stars
+// (n) and merges with the next ones; a change note has its icon and text.
+type note struct {
+	repo        string
+	n           int
+	icon, text  string
+	from, until time.Time
 }
 
 // noticeNewStars compares star counts with the last online load: each repo
@@ -319,7 +330,6 @@ func (m *Model) noticeNewStars(repos []Repo) {
 				continue
 			}
 			m.addNote(r.Name, gained, wall)
-			m.rotFrom = wall // show the note now, while its shooting star flies
 			for i := 0; i < gained && shots < maxShots; i++ {
 				m.shots = append(m.shots, scene.Shooting{Start: next.Add(time.Duration(shots) * shotGap), Seed: at.UnixMilli() + int64(len(m.shots))})
 				shots++
@@ -329,19 +339,24 @@ func (m *Model) noticeNewStars(repos []Repo) {
 	m.stars = counts
 }
 
-// addNote tells the ticker repo got n new stars. While that repo's note is
-// still showing, the stars are added to it and its minute starts over.
+// addNote tells the ticker repo got n new stars. While that repo's star note
+// is still showing, the stars are added to it and its minute starts over.
 func (m *Model) addNote(repo string, n int, wall time.Time) {
 	notes := slices.Clone(m.notes)
 	for i := range notes {
-		if notes[i].repo == repo && wall.Before(notes[i].until) {
+		if notes[i].icon == "" && notes[i].repo == repo && wall.Before(notes[i].until) {
 			notes[i].n += n
-			notes[i].until = wall.Add(noteFor)
+			notes[i].from, notes[i].until = wall, wall.Add(noteFor)
 			m.notes = notes
 			return
 		}
 	}
-	m.notes = append(notes, starNote{repo: repo, n: n, until: wall.Add(noteFor)})
+	m.notes = append(notes, note{repo: repo, n: n, from: wall, until: wall.Add(noteFor)})
+}
+
+// addChangeNote tells the ticker what changed, for a minute from from.
+func (m *Model) addChangeNote(icon, text string, from time.Time) {
+	m.notes = append(slices.Clone(m.notes), note{icon: icon, text: text, from: from, until: from.Add(noteFor)})
 }
 
 // prune forgets shooting stars that have landed and notes that have expired.
@@ -353,13 +368,19 @@ func (m *Model) prune() {
 			shots = append(shots, s)
 		}
 	}
-	var notes []starNote
+	var notes []note
 	for _, n := range m.notes {
 		if wall.Before(n.until) {
 			notes = append(notes, n)
 		}
 	}
-	m.shots, m.notes = shots, notes
+	var reacts []reaction
+	for _, r := range m.reacts {
+		if at.Before(r.anim.Start.Add(r.anim.Duration())) {
+			reacts = append(reacts, r)
+		}
+	}
+	m.shots, m.notes, m.reacts = shots, notes, reacts
 }
 
 func (m Model) starTotal() int {
@@ -370,11 +391,21 @@ func (m Model) starTotal() int {
 	return total
 }
 
-// starItems are the ticker's notes about new stars.
-func (m Model) starItems() []Item {
-	var items []Item
+// noteItems are the ticker's notes showing now, newest first: new stars and
+// other changes.
+func (m Model) noteItems() []Item {
+	wall := m.cfg.Now()
+	var showing []note
 	for _, n := range m.notes {
-		if !m.cfg.Now().Before(n.until) {
+		if !wall.Before(n.from) && wall.Before(n.until) {
+			showing = append(showing, n)
+		}
+	}
+	sort.SliceStable(showing, func(i, j int) bool { return showing[i].from.After(showing[j].from) })
+	var items []Item
+	for _, n := range showing {
+		if n.icon != "" {
+			items = append(items, Item{n.icon, n.text})
 			continue
 		}
 		text := "New star on " + n.repo
@@ -384,6 +415,19 @@ func (m Model) starItems() []Item {
 		items = append(items, Item{"⭐", text})
 	}
 	return items
+}
+
+// latestNote is when the newest note showing now appeared. The ticker's
+// rotation restarts there, so a new note shows at once.
+func (m Model) latestNote() (time.Time, bool) {
+	wall := m.cfg.Now()
+	var latest time.Time
+	for _, n := range m.notes {
+		if !wall.Before(n.from) && wall.Before(n.until) && n.from.After(latest) {
+			latest = n.from
+		}
+	}
+	return latest, !latest.IsZero()
 }
 
 func (m Model) now() time.Time         { return m.cfg.Now().Add(m.cfg.Ahead) }
@@ -441,6 +485,9 @@ func (m Model) busy() bool {
 			return true // a shooting star is flying, or queued to
 		}
 	}
+	if m.reacting() {
+		return true // a reaction plays or waits, or the camera has visits to make
+	}
 	day := scene.Darkness(at) <= 0.5
 	for _, pl := range m.plots(at) {
 		if pl.Weather == scene.Storm || (day && scene.Flowering(pl)) {
@@ -458,6 +505,13 @@ func (m Model) sceneView(at time.Time) scene.View {
 	v := scene.View{Cols: m.cols, Rows: rows, Plots: m.plots(at), Now: at, Seed: 1, Motion: true,
 		Sky: m.cfg.Sky, StarTotal: m.starTotal(), Shooting: m.shots}
 	v.Pan, _ = m.pan(m.layout())
+	for _, r := range m.reacts {
+		if i := m.indexOf(r.repo); i >= 0 {
+			a := r.anim
+			a.Plot = i + 1
+			v.Reactions = append(v.Reactions, a)
+		}
+	}
 	if i := m.selected(); i >= 0 {
 		v.Selected = i + 1
 		if m.sel.card {
@@ -521,10 +575,10 @@ func (m Model) tickerLine(at time.Time) string {
 		items[0].Text += fmt.Sprintf(" · ⭐ %d", m.starTotal())
 	}
 	elapsed := m.elapsed()
-	if !m.rotFrom.IsZero() {
-		elapsed = m.cfg.Now().Sub(m.rotFrom)
+	if from, ok := m.latestNote(); ok {
+		elapsed = m.cfg.Now().Sub(from)
 	}
-	return Line(append(m.starItems(), items...), elapsed, status, m.cols)
+	return Line(append(m.noteItems(), items...), elapsed, status, m.cols)
 }
 
 // center wraps text to the window's width and centers it in the window.
