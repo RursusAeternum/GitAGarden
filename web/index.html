@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GAG · Git a Garden</title>
+  <meta name="description" content="GAG, a terminal garden of git projects, running in the browser: the Go TUI compiled to WebAssembly, with xterm.js as the terminal." />
+  <link rel="stylesheet" href="vendor/xterm.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column;
+      background: #14120f; color: #d0d0c8;
+      font: 12px/1 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace;
+    }
+    header {
+      display: flex; align-items: center; gap: 14px;
+      height: 26px; padding: 0 10px; flex: none;
+      background: #1c1a17; border-bottom: 1px solid #2a2722;
+      white-space: nowrap; overflow: hidden;
+    }
+    header a { color: #8f8a7e; text-decoration: none; }
+    header a:hover { color: #d0d0c8; }
+    header a[aria-current] { color: #5fd75f; }
+    #hint { color: #6d695f; overflow: hidden; text-overflow: ellipsis; }
+    #source { margin-left: auto; }
+    main { position: relative; flex: 1; min-height: 0; }
+    #term { position: absolute; inset: 0; }
+    #message {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      padding: 16px; text-align: center; line-height: 1.5; background: #14120f;
+    }
+    #message[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="?mode=garden" data-mode="garden">garden</a>
+    <a href="?mode=replay" data-mode="replay">replay</a>
+    <span id="hint"></span>
+    <a id="source" href="https://github.com/RursusAeternum/GitAGarden" target="_blank" rel="noreferrer">source ↗</a>
+  </header>
+  <main>
+    <div id="term"></div>
+    <div id="message">planting the garden…</div>
+  </main>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-webgl.js"></script>
+  <script src="vendor/wasm_exec.js"></script>
+  <script>
+    'use strict'
+    // GAG's layouts want about 80×26 cells: replay is a plot beside a
+    // 46-column panel, and a garden bed is 24 rows plus the ticker (a wider
+    // garden pans by itself). Small frames, like a card on a portfolio page,
+    // get a smaller font rather than a cropped garden.
+    const MIN_COLS = 80, MIN_ROWS = 26, MAX_FONT = 15, MIN_FONT = 6
+
+    const mode = new URLSearchParams(location.search).get('mode') === 'replay' ? 'replay' : 'garden'
+    document.querySelector(`[data-mode="${mode}"]`).setAttribute('aria-current', 'page')
+    document.getElementById('hint').textContent =
+      mode === 'garden' ? 'click in, then ? for keys' : 'click in to use the keys'
+    const message = document.getElementById('message')
+    const say = (text) => { message.textContent = text; message.hidden = false }
+
+    const term = new Terminal({
+      fontFamily: 'ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace',
+      fontSize: MAX_FONT,
+      lineHeight: 1,
+      // Bubble Tea draws on the alternate screen, which never scrolls; with
+      // no scrollback, fit also stops reserving room for a scrollbar.
+      scrollback: 0,
+      cursorBlink: false,
+      cursorInactiveStyle: 'none',
+      theme: { background: '#14120f', foreground: '#d0d0c8' },
+    })
+    const fit = new FitAddon.FitAddon()
+    term.loadAddon(fit)
+    const el = document.getElementById('term')
+    term.open(el)
+    // WebGL draws the half-block pixels edge to edge; the DOM renderer
+    // leaves hairlines between rows. Keep the DOM one if WebGL is missing.
+    try {
+      const webgl = new WebglAddon.WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      term.loadAddon(webgl)
+    } catch (err) {
+      console.warn('gag: no WebGL, using the DOM renderer', err)
+    }
+
+    function size() {
+      term.options.fontSize = MAX_FONT
+      const dims = fit.proposeDimensions()
+      if (dims) {
+        const scale = Math.min(1, dims.cols / MIN_COLS, dims.rows / MIN_ROWS)
+        term.options.fontSize = Math.max(MIN_FONT, Math.floor(MAX_FONT * scale))
+      }
+      fit.fit()
+    }
+    size()
+    let pending = false
+    new ResizeObserver(() => {
+      if (pending) return
+      pending = true
+      requestAnimationFrame(() => { pending = false; size() })
+    }).observe(el)
+
+    let closed = false
+    window.gag = {
+      mode,
+      cols: term.cols,
+      rows: term.rows,
+      write: (bytes) => term.write(bytes),
+      exited: () => { closed = true; say('The garden is closed. Press any key to plant it again.') },
+    }
+    term.onData((data) => (closed ? location.reload() : gag.input?.(data)))
+    term.onResize(({ cols, rows }) => gag.resize?.(cols, rows))
+
+    async function start() {
+      const go = new Go()
+      const res = await fetch('gag.wasm')
+      if (!res.ok) throw new Error(`gag.wasm: HTTP ${res.status}`)
+      const { instance } = res.headers.get('content-type')?.startsWith('application/wasm')
+        ? await WebAssembly.instantiateStreaming(res, go.importObject)
+        : await WebAssembly.instantiate(await res.arrayBuffer(), go.importObject)
+      message.hidden = true
+      if (document.hasFocus()) term.focus()
+      go.run(instance)
+    }
+    start().catch((err) => {
+      console.error(err)
+      say(`The garden didn't load: ${err.message}`)
+    })
+  </script>
+</body>
+</html>

@@ -20,3 +20,14 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: check
+
+  # The browser demo patches Bubble Tea at build time; build it so a
+  # dependency bump that breaks the patch fails here, not on the website.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: web/build.sh
