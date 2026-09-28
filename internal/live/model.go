@@ -148,12 +148,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.cols, m.rows = msg.Width, msg.Height
-		if i := m.selected(); i >= 0 {
-			m.holdOn(i) // the layout changed: keep the selection on screen
-		}
+		m.keepOnScreen()
 	case tickMsg:
 		m.prune()
-		if m.sel.name != "" && m.cfg.Now().Sub(m.sel.lastInput) >= idleClear {
+		if m.sel.name != "" && m.cfg.Now().Round(0).Sub(m.sel.lastInput) >= idleClear {
 			m.unselect()
 		}
 		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
@@ -190,6 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.sel.name != "" && m.selected() < 0 {
 				m.unselect() // its repo left the garden
 			}
+			m.keepOnScreen() // the garden or its order may have changed
 		}
 		gen := m.gen
 		return m, tea.Tick(m.cfg.Refresh, func(time.Time) tea.Msg { return refreshMsg{gen} })
@@ -201,11 +200,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.load(false)
 	case tea.MouseMsg:
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-			m.sel.lastInput = m.cfg.Now()
+			m.sel.lastInput = m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
 			m.click(msg.X, msg.Y)
 		}
 	case tea.KeyMsg:
-		m.sel.lastInput = m.cfg.Now()
+		m.sel.lastInput = m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -233,8 +232,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "t":
 			m.ticker = !m.ticker
+			m.keepOnScreen() // the ticker line changes how many beds fit
 		case "?":
 			m.help = !m.help
+			m.keepOnScreen()
 		}
 	}
 	return m, nil

@@ -47,6 +47,14 @@ func (m *Model) choose(i int) {
 	m.holdOn(i)
 }
 
+// keepOnScreen re-aims the camera at the selected plant after the layout or
+// the plants' order changed.
+func (m *Model) keepOnScreen() {
+	if i := m.selected(); i >= 0 {
+		m.holdOn(i)
+	}
+}
+
 // unselect clears the selection and closes the card, handing the camera
 // back to automatic panning.
 func (m *Model) unselect() {

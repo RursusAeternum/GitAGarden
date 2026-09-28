@@ -38,10 +38,10 @@ func TestCardForAFullRepo(t *testing.T) {
 		{Label: "last", Value: "Make storms readable"},
 		{Label: "14 days", Value: "·▂▄█▂··▂▆█▂·▄█ 23 commits"},
 		{Label: "CI", Value: "✓ passing on main", Tone: scene.ToneGood},
-		{Label: "PRs", Value: "3 open · oldest 10d · +1 draft"},
+		{Label: "PRs", Value: "3 open · oldest 10d"},
 		{Sub: true, Value: "#9 Bump deps", Right: "10d"},
 		{Sub: true, Value: "#12 Add sparkline", Right: "2d"},
-		{Sub: true, Value: "+1 more"},
+		{Sub: true, Value: "+1 more · +1 draft"},
 		{Label: "issues", Value: "4 open · newest 2d ago"},
 		{Sub: true, Value: "#31 Crash on empty repo"},
 		{Label: "release", Value: "v0.5.0 · 1h ago", Tone: scene.ToneGold},
@@ -122,5 +122,25 @@ func TestCardDropsLinesInOrder(t *testing.T) {
 		if got := labels(CardFor(fullRepo(), t0, 45, rows)); got != want {
 			t.Errorf("%d rows: %s\nwant %s", rows, got, want)
 		}
+	}
+}
+
+func TestCardCountsDrafts(t *testing.T) {
+	onlyDrafts := grow("wip", 10, 0, t0)
+	onlyDrafts.Detail.Drafts = 2
+	one := grow("one", 10, 0, t0)
+	one.Detail.PRs = []Entry{{Number: 3, Title: "Fix it", At: t0.Add(-48 * time.Hour)}}
+	one.Detail.Drafts = 1
+	lines := func(r Repo) []scene.CardLine { return CardFor(r, t0, 45, 40).Lines[5:] }
+	if got := lines(onlyDrafts)[0]; got.Value != "2 drafts" {
+		t.Errorf("only drafts: PRs line %+v, want \"2 drafts\"", got)
+	}
+	want := []scene.CardLine{
+		{Label: "PRs", Value: "1 open · oldest 2d"},
+		{Sub: true, Value: "#3 Fix it", Right: "2d"},
+		{Sub: true, Value: "+1 draft"},
+	}
+	if got := lines(one)[:3]; !reflect.DeepEqual(got, want) {
+		t.Errorf("one PR and a draft:\n%+v\nwant\n%+v", got, want)
 	}
 }

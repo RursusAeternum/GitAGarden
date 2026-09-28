@@ -162,16 +162,17 @@ func cardRow(c *pixel.Canvas, x, row int, segs ...seg) {
 	}
 }
 
-// cardRunes cleans text for the card. Control characters go (a tab becomes
-// a space), and runes that don't take exactly one terminal column become
-// '?', so they can't shift the row.
+// cardRunes cleans text for the card. Control characters and zero-width
+// runes (combining marks, joiners, variation selectors, tags) go, a tab
+// becomes a space, and runes that don't take exactly one terminal column
+// become '?', so nothing can shift the row.
 func cardRunes(s string) []rune {
 	var out []rune
 	for _, r := range s {
 		switch {
 		case r == '\t':
 			out = append(out, ' ')
-		case unicode.IsControl(r):
+		case unicode.IsControl(r), unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf, unicode.Variation_Selector):
 		case runewidth.RuneWidth(r) != 1:
 			out = append(out, '?')
 		default:

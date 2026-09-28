@@ -62,8 +62,9 @@ wilting projects and says how fresh the data is. It reloads from GitHub every
 
 Live keys: `←/→` select a plant · `enter` open its detail card · `esc` close ·
 `r` refresh now · `t` hide/show the ticker · `?` help · `q` quit. A click
-selects a plant too. While GAG runs it takes the mouse: hold ⌥ Option
-(Alt on Linux) to select text.
+selects a plant too. While GAG runs it takes the mouse. To select text, hold
+⌥ Option in iTerm2, toggle View ▸ Allow Mouse Reporting (⌘R) in Terminal.app,
+or hold Shift in most Linux terminals.
 
 Replay keys: `space` play/pause · `←/→` step event · `+/-` speed · `s` cycle
 species · `f` toggle glass · `n` new history · `r` restart · `G` jump to end · `q` quit.

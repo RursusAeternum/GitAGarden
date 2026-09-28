@@ -109,25 +109,32 @@ func ciLine(r Repo) scene.CardLine {
 	return l
 }
 
-// prLines are the PR summary and up to two PRs, oldest first.
+// prLines are the PR summary, up to two PRs oldest first, then a line for
+// the rest: more PRs, and drafts.
 func prLines(d Detail, now time.Time) []rankedLine {
 	prs := slices.Clone(d.PRs)
 	sort.SliceStable(prs, func(i, j int) bool { return prs[i].At.Before(prs[j].At) })
 	sum := scene.CardLine{Label: "PRs", Value: "none open"}
-	if len(prs) > 0 {
+	switch {
+	case len(prs) > 0:
 		sum.Value = fmt.Sprintf("%d open · oldest %s", len(prs), age(now.Sub(prs[0].At)))
-	}
-	if d.Drafts > 0 {
-		sum.Value += fmt.Sprintf(" · +%d draft", d.Drafts)
+	case d.Drafts > 0:
+		sum.Value = plural(d.Drafts, "draft")
 	}
 	out := []rankedLine{{sum, dropPRs}}
-	for i, pr := range prs {
-		if i == 2 {
-			out = append(out, rankedLine{scene.CardLine{Sub: true, Value: fmt.Sprintf("+%d more", len(prs)-2)}, dropPRTitles})
-			break
-		}
+	for _, pr := range prs[:min(2, len(prs))] {
 		out = append(out, rankedLine{scene.CardLine{Sub: true, Value: fmt.Sprintf("#%d %s", pr.Number, pr.Title),
 			Right: age(now.Sub(pr.At))}, dropPRTitles})
+	}
+	var rest []string
+	if len(prs) > 2 {
+		rest = append(rest, fmt.Sprintf("+%d more", len(prs)-2))
+	}
+	if len(prs) > 0 && d.Drafts > 0 {
+		rest = append(rest, "+"+plural(d.Drafts, "draft"))
+	}
+	if len(rest) > 0 {
+		out = append(out, rankedLine{scene.CardLine{Sub: true, Value: strings.Join(rest, " · ")}, dropPRTitles})
 	}
 	return out
 }

@@ -46,7 +46,9 @@ follow as v0.7.
     selection.
   - A click inside an open card does nothing. Other buttons, the wheel and
     drags are ignored.
-  - The README notes that ⌥ Option-drag still selects text while GAG runs.
+  - The README says how to select text while GAG runs: ⌥ Option in
+    iTerm2, View ▸ Allow Mouse Reporting (⌘R) in Terminal.app, Shift in most
+    Linux terminals.
 - **Highlight.** The ground strip under the selected plant brightens and its
   name label turns bright white. Nothing else in the scene changes.
 - **Camera.** This applies when the garden is wider than the window and pans.
