@@ -20,6 +20,7 @@ type View struct {
 	StarTotal  int        // the garden's GitHub stars, for SkyStars
 	Shooting   []Shooting // shooting stars, drawn while in flight
 	Selected   int        // 1 + the selected plot's index; 0, the zero value, selects none
+	Card       *Card      // the selected plot's detail card; nil for none
 }
 
 // Layout is how plots are arranged in a frame.
@@ -89,6 +90,9 @@ func Draw(v View) *pixel.Canvas {
 	}
 	if v.Motion {
 		DrawCritters(c, v.Now, hosts, v.Seed)
+	}
+	if v.Card != nil {
+		drawCard(c, v)
 	}
 	return c
 }
