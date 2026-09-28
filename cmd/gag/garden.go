@@ -163,27 +163,43 @@ func printOnce(src source, ahead time.Duration, simulate string, sky scene.SkyMo
 	return nil
 }
 
+// demoItem is an open PR in the demo garden.
+type demoItem struct {
+	days   int // how long ago it was opened
+	number int
+	title  string
+}
+
 type demoRepo struct {
 	name, lang string
 	events     int
 	idleDays   int
 	finished   bool
 	ci         live.CI
-	prDaysAgo  []int // open PRs, by age in days
+	prs        []demoItem // open PRs
+	drafts     int
 	newIssues  int
 	rising     bool
 	stars      int
+	commit     string // the last commit's headline
 }
 
 var demo = []demoRepo{
-	{name: "gag-core", lang: "go", events: 160, ci: live.CIPassing, prDaysAgo: []int{2, 10}, rising: true, stars: 31},
-	{name: "rustyfs", lang: "rust", events: 90, idleDays: 12, ci: live.CIFailing, stars: 12},
-	{name: "notebook-api", lang: "python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4, stars: 3},
-	{name: "old-blog", lang: "go", events: 120, idleDays: 400, finished: true},
-	{name: "dotfiles", lang: "shell", events: 40, idleDays: 35},
-	{name: "tiny-cli", lang: "rust", events: 12, idleDays: 1, prDaysAgo: []int{1}},
-	{name: "site-v2", lang: "typescript", events: 110, idleDays: 70},
-	{name: "lsystem", lang: "c", events: 60, idleDays: 200, finished: true, stars: 2},
+	{name: "gag-core", lang: "Go", events: 160, ci: live.CIPassing, rising: true, stars: 31,
+		prs:    []demoItem{{2, 41, "Add a detail card"}, {10, 38, "Bump bubbletea to v1.3"}},
+		commit: "Draw the card beside the plant"},
+	{name: "rustyfs", lang: "Rust", events: 90, idleDays: 12, ci: live.CIFailing, stars: 12,
+		commit: "Fix inode refcount on unlink"},
+	{name: "notebook-api", lang: "Python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4, stars: 3,
+		commit: "Paginate the notes endpoint"},
+	{name: "old-blog", lang: "Go", events: 120, idleDays: 400, finished: true,
+		commit: "Final post: moving on"},
+	{name: "dotfiles", lang: "Shell", events: 40, idleDays: 35, commit: "Add fish abbreviations"},
+	{name: "tiny-cli", lang: "Rust", events: 12, idleDays: 1, drafts: 1,
+		prs: []demoItem{{1, 7, "Support --json output"}}, commit: "Handle empty input"},
+	{name: "site-v2", lang: "TypeScript", events: 110, idleDays: 70, commit: "Swap the hero image"},
+	{name: "lsystem", lang: "C", events: 60, idleDays: 200, finished: true, stars: 2,
+		commit: "Add a Koch curve example"},
 }
 
 // demoGarden grows the demo repos, with fake histories whose last event
@@ -197,9 +213,10 @@ func demoGarden(now time.Time) []live.Repo {
 			events[i].At = events[i].At.Add(shift)
 		}
 		lr := live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), events),
-			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising, Stars: r.stars}
-		for _, d := range r.prDaysAgo {
-			lr.PRs = append(lr.PRs, now.Add(-time.Duration(d)*24*time.Hour))
+			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising, Stars: r.stars,
+			Detail: demoDetail(r, events, now)}
+		for _, pr := range r.prs {
+			lr.PRs = append(lr.PRs, now.Add(-time.Duration(pr.days)*24*time.Hour))
 		}
 		out = append(out, lr)
 	}
@@ -209,7 +226,7 @@ func demoGarden(now time.Time) []live.Repo {
 // repoFor grows a repo's plant and works out its signals as of now.
 func repoFor(r *github.Repo, now time.Time) live.Repo {
 	lr := live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()),
-		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI), Stars: r.Stars}
+		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI), Stars: r.Stars, Detail: detailFor(r, now)}
 	for _, pr := range r.OpenPRs {
 		if !pr.Draft { // drafts aren't waiting on anyone
 			lr.PRs = append(lr.PRs, pr.CreatedAt)

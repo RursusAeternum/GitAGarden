@@ -19,6 +19,7 @@ type Repo struct {
 	NewIssues int         // issues opened in the last 7 days
 	Rising    bool        // more commits in the last 14 days than in the 14 before
 	Stars     int         // GitHub stars
+	Detail    Detail      // what the detail card shows
 }
 
 // CI is a repo's build state on its default branch.
