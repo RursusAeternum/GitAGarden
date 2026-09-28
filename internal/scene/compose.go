@@ -66,11 +66,11 @@ func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int, selected bool) {
 		}
 	}
 	labelRow := oy/2 + BedRows - 2
-	nameFg := nameColor
-	if selected {
-		nameFg = selectedLabel
+	if selected { // marked, with the name where it always is
+		label(c, cx, labelRow, "▸ "+string(labelRunes(pl.Name, BedCols-6))+" ◂", selectedLabel)
+	} else {
+		label(c, cx, labelRow, pl.Name, nameColor)
 	}
-	label(c, cx, labelRow, pl.Name, nameFg)
 	label(c, cx, labelRow+1, pl.Status, statusColor(pl))
 }
 
@@ -91,9 +91,16 @@ func statusColor(pl Plot) pixel.RGB {
 	return pixel.Lerp(sadLabel, happyLabel, pl.Style.Health)
 }
 
-// label centers s on column cx, truncated to fit a bed. Runes that don't
-// take exactly one terminal cell become '?', so they can't shift the row.
+// label centers s on column cx, truncated to fit a bed.
 func label(c *pixel.Canvas, cx, row int, s string, fg pixel.RGB) {
+	rs := labelRunes(s, BedCols-2)
+	c.Text(cx-len(rs)/2, row, string(rs), fg)
+}
+
+// labelRunes is s cut to at most limit runes, ending in … when cut. Runes
+// that don't take exactly one terminal cell become '?', so they can't shift
+// the row.
+func labelRunes(s string, limit int) []rune {
 	var rs []rune
 	for _, r := range s {
 		if runewidth.RuneWidth(r) != 1 {
@@ -101,8 +108,8 @@ func label(c *pixel.Canvas, cx, row int, s string, fg pixel.RGB) {
 		}
 		rs = append(rs, r)
 	}
-	if limit := BedCols - 2; len(rs) > limit {
+	if len(rs) > limit {
 		rs = append(rs[:limit-1], '…')
 	}
-	c.Text(cx-len(rs)/2, row, string(rs), fg)
+	return rs
 }

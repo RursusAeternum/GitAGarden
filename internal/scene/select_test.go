@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/RursusAeternum/GitAGarden/internal/pixel"
 )
@@ -45,6 +46,46 @@ func TestSelectionLightsItsGroundStrip(t *testing.T) {
 	lit := Draw(v).Encode(pixel.TrueColor)
 	if white := "38;2;255;255;255m"; strings.Count(lit, white) <= strings.Count(plain, white) {
 		t.Error("the selected plant's name label should turn white")
+	}
+}
+
+// nameLine is the frame's text row holding name, and the column name starts at.
+func nameLine(t *testing.T, v View, name string) (string, int) {
+	t.Helper()
+	for _, line := range strings.Split(visible(Draw(v).Encode(pixel.TrueColor)), "\n") {
+		if i := strings.Index(line, name); i >= 0 {
+			return line, utf8.RuneCountInString(line[:i])
+		}
+	}
+	t.Fatalf("no row shows %q", name)
+	return "", 0
+}
+
+func TestSelectedNameIsMarked(t *testing.T) {
+	v := View{Cols: 3*BedCols + 10, Plots: demoPlots(), Now: at(14, 0), Seed: 1}
+	name := v.Plots[1].Name
+	_, col := nameLine(t, v, name)
+	v.Selected = 2
+	line, litCol := nameLine(t, v, name)
+	if !strings.Contains(line, "▸ "+name+" ◂") {
+		t.Errorf("selected name row = %q, want %q in it", line, "▸ "+name+" ◂")
+	}
+	if litCol != col {
+		t.Errorf("the selected name moved from column %d to %d", col, litCol)
+	}
+	text := visible(Draw(v).Encode(pixel.TrueColor))
+	if strings.Count(text, "▸") != 1 || strings.Count(text, "◂") != 1 {
+		t.Error("only the selected plant should be marked")
+	}
+}
+
+func TestLongSelectedNameIsTrimmedInsideItsMarks(t *testing.T) {
+	plots := demoPlots()[:1]
+	plots[0].Name = strings.Repeat("x", 30)
+	v := View{Cols: BedCols, Plots: plots, Now: at(14, 0), Seed: 1, Selected: 1}
+	want := "▸ " + strings.Repeat("x", BedCols-7) + "… ◂"
+	if line, _ := nameLine(t, v, "▸"); !strings.Contains(line, want) {
+		t.Errorf("long selected name row = %q, want %q in it", line, want)
 	}
 }
 

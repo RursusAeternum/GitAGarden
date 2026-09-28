@@ -50,7 +50,9 @@ follow as v0.7.
     iTerm2, View ▸ Allow Mouse Reporting (⌘R) in Terminal.app, Shift in most
     Linux terminals.
 - **Highlight.** The ground strip under the selected plant brightens and its
-  name label turns bright white. Nothing else in the scene changes.
+  name label turns bright white, marked `▸ name ◂` with the name where it
+  always is (a name over 20 characters is trimmed with `…` while selected).
+  Nothing else in the scene changes.
 - **Camera.** This applies when the garden is wider than the window and pans.
   - While a plant is selected, the automatic panning stops.
   - If the selected plant is off screen, the camera slides, with the
