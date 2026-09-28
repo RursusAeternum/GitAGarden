@@ -21,7 +21,7 @@ const (
 	defaultRefresh   = 5 * time.Minute
 	swayPeriod       = 5 * time.Second
 	minCols, minRows = 24, 12
-	helpLine         = "q quit · r refresh · t ticker · ? help"
+	helpLine         = "←/→ select · enter details · r refresh · t ticker · ? help · q quit"
 	wakeGap          = time.Minute      // a longer gap between ticks means the machine slept
 	wakeDelay        = 10 * time.Second // then give the network a moment before refreshing
 	maxShots         = 3                // shooting stars per refresh, however many stars arrive
@@ -64,6 +64,8 @@ type Model struct {
 	shots      []scene.Shooting // queued and flying shooting stars
 	notes      []starNote       // ticker notes about new stars
 	rotFrom    time.Time        // the ticker's rotation restarts here when a star note arrives
+	sel        selection        // the selected plant and its card
+	cam        camera           // panning, held while a plant is selected
 }
 
 type (
@@ -145,8 +147,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.cols, m.rows = msg.Width, msg.Height
+		if i := m.selected(); i >= 0 {
+			m.holdOn(i) // the layout changed: keep the selection on screen
+		}
 	case tickMsg:
 		m.prune()
+		if m.sel.name != "" && m.cfg.Now().Sub(m.sel.lastInput) >= idleClear {
+			m.unselect()
+		}
 		now := m.cfg.Now().Round(0) // wall clock: the monotonic one stops while the machine sleeps
 		if !m.lastTick.IsZero() && now.Sub(m.lastTick) > wakeGap {
 			m.wokeAt = now // Wi-Fi often needs a few seconds after waking
@@ -178,6 +186,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !msg.snap.Offline && !msg.snap.Demo { // cached or fake counts are no news
 				m.noticeNewStars(msg.snap.Repos)
 			}
+			if m.sel.name != "" && m.selected() < 0 {
+				m.unselect() // its repo left the garden
+			}
 		}
 		gen := m.gen
 		return m, tea.Tick(m.cfg.Refresh, func(time.Time) tea.Msg { return refreshMsg{gen} })
@@ -187,10 +198,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		return m, m.load(false)
+	case tea.MouseMsg:
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+			m.sel.lastInput = m.cfg.Now()
+			m.click(msg.X, msg.Y)
+		}
 	case tea.KeyMsg:
+		m.sel.lastInput = m.cfg.Now()
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			switch {
+			case m.sel.card:
+				m.sel.card = false
+			case m.selected() >= 0:
+				m.unselect()
+			default:
+				return m, tea.Quit
+			}
+		case "left":
+			m.stepSelection(-1)
+		case "right":
+			m.stepSelection(+1)
+		case "enter":
+			if m.selected() >= 0 {
+				m.sel.card = !m.sel.card
+			}
 		case "r":
 			if !m.loading {
 				m.loading = true
@@ -375,9 +409,8 @@ func (m Model) busy() bool {
 	if len(m.repos) == 0 || m.cols == 0 {
 		return false
 	}
-	lay := scene.LayoutFor(m.cols, m.gardenRows(), len(m.repos))
-	if lay.Overflow && (scene.Sliding(m.elapsed()) || scene.Sliding(m.elapsed()+slowFrame)) {
-		return true
+	if _, sliding := m.pan(m.layout()); sliding {
+		return true // the camera slides, or is about to
 	}
 	at := m.now()
 	for _, s := range m.shots {
@@ -394,6 +427,24 @@ func (m Model) busy() bool {
 	return false
 }
 
+// sceneView is the frame at time at: the plants, sky, camera, selection and
+// card. View draws it; arrow keys and clicks read it, so they act on what's
+// on screen.
+func (m Model) sceneView(at time.Time) scene.View {
+	rows := m.gardenRows()
+	v := scene.View{Cols: m.cols, Rows: rows, Plots: m.plots(at), Now: at, Seed: 1, Motion: true,
+		Sky: m.cfg.Sky, StarTotal: m.starTotal(), Shooting: m.shots}
+	v.Pan, _ = m.pan(m.layout())
+	if i := m.selected(); i >= 0 {
+		v.Selected = i + 1
+		if m.sel.card {
+			card := CardFor(m.repos[i], at, m.cfg.DecayDays, rows)
+			v.Card = &card
+		}
+	}
+	return v
+}
+
 func (m Model) View() string {
 	switch {
 	case m.cols == 0:
@@ -406,14 +457,7 @@ func (m Model) View() string {
 		return m.loadingView()
 	}
 	at := m.now()
-	rows := m.gardenRows()
-	plots := m.plots(at)
-	v := scene.View{Cols: m.cols, Rows: rows, Plots: plots, Now: at, Seed: 1, Motion: true,
-		Sky: m.cfg.Sky, StarTotal: m.starTotal(), Shooting: m.shots}
-	if lay := scene.LayoutFor(m.cols, rows, len(plots)); lay.Overflow {
-		v.Pan = scene.PanAt(m.elapsed(), lay.Columns)
-	}
-	out := scene.Draw(v).Encode(m.cfg.Profile)
+	out := scene.Draw(m.sceneView(at)).Encode(m.cfg.Profile)
 	if m.tickerShown() {
 		out += "\n" + tickerStyle.Render(m.tickerLine(at))
 	}
@@ -447,7 +491,7 @@ func (m Model) tickerLine(at time.Time) string {
 		status = strings.TrimSuffix(m.cfg.Label+" · "+status, " · ")
 	}
 	if m.help {
-		return fit(" "+helpLine, status+" ", m.cols)
+		return fit(" "+helpLine, "", m.cols) // the keys need the whole line
 	}
 	items := Items(m.repos, at, m.cfg.DecayDays, m.snap.Commits7d)
 	if m.cfg.Sky == scene.SkyStars && len(items) == 1 && items[0].Icon == calmIcon {

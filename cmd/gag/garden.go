@@ -62,7 +62,7 @@ func runGarden(args []string) error {
 	}
 	m := live.New(live.Config{Load: src.snapshot, Refresh: opts.refresh, DecayDays: opts.decay, Ahead: ahead,
 		Profile: colorProfile(), Label: label, Sky: opts.sky})
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
