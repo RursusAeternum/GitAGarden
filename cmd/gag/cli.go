@@ -21,7 +21,7 @@ func main() {
 	case "garden":
 		err = runGarden(args)
 	case "config":
-		err = runConfig()
+		err = runConfig(os.Stdout)
 	case "version", "--version", "-v":
 		fmt.Println("gag", version)
 	default:

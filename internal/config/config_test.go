@@ -125,3 +125,12 @@ func TestReposMustBeOwnerSlashName(t *testing.T) {
 		}
 	}
 }
+
+func TestDecayMustBeAFiniteNumber(t *testing.T) {
+	for _, v := range []string{"nan", "NaN", "inf", "+Inf", "-inf"} {
+		c, warns := Parse(strings.NewReader("decay = " + v))
+		if len(warns) != 1 || c.Decay != 45 {
+			t.Errorf("decay = %s: decay %v, warnings %v; want one warning and 45", v, c.Decay, warns)
+		}
+	}
+}

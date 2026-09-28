@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -304,21 +305,42 @@ func (m *Model) noticeNewStars(repos []Repo) {
 	}
 	if m.stars != nil {
 		wall, at, shots := m.cfg.Now(), m.now(), 0
+		next := at.Add(slowFrame) // by then the fast frames have started
+		for _, s := range m.shots {
+			if t := s.Start.Add(shotGap); t.After(next) {
+				next = t // queue behind the shooting stars still waiting
+			}
+		}
 		for _, r := range repos {
 			before, known := m.stars[r.Name]
 			gained := r.Stars - before
 			if _, unique := counts[r.Name]; !known || !unique || gained <= 0 {
 				continue
 			}
-			m.notes = append(m.notes, starNote{repo: r.Name, n: gained, until: wall.Add(noteFor)})
+			m.addNote(r.Name, gained, wall)
 			m.rotFrom = wall // show the note now, while its shooting star flies
 			for i := 0; i < gained && shots < maxShots; i++ {
-				m.shots = append(m.shots, scene.Shooting{Start: at.Add(time.Duration(shots) * shotGap), Seed: at.UnixMilli() + int64(len(m.shots))})
+				m.shots = append(m.shots, scene.Shooting{Start: next.Add(time.Duration(shots) * shotGap), Seed: at.UnixMilli() + int64(len(m.shots))})
 				shots++
 			}
 		}
 	}
 	m.stars = counts
+}
+
+// addNote tells the ticker repo got n new stars. While that repo's note is
+// still showing, the stars are added to it and its minute starts over.
+func (m *Model) addNote(repo string, n int, wall time.Time) {
+	notes := slices.Clone(m.notes)
+	for i := range notes {
+		if notes[i].repo == repo && wall.Before(notes[i].until) {
+			notes[i].n += n
+			notes[i].until = wall.Add(noteFor)
+			m.notes = notes
+			return
+		}
+	}
+	m.notes = append(notes, starNote{repo: repo, n: n, until: wall.Add(noteFor)})
 }
 
 // prune forgets shooting stars that have landed and notes that have expired.

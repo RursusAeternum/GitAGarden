@@ -538,3 +538,65 @@ func TestDemoGardenIsNoStarBaseline(t *testing.T) {
 		t.Errorf("signing in gave %d shots and notes %+v", len(m.shots), m.notes)
 	}
 }
+
+func TestShootingStarsQueueUp(t *testing.T) {
+	now := t0
+	cur := starred(garden3(), 1, 1, 1)
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return cur, nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m = ready(m, 100, 30)
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 3, 1, 1)})
+	if first := m.shots[0].Start; first.Before(t0.Add(slowFrame)) {
+		t.Errorf("the first shooting star starts %v after its refresh; want it to wait one idle frame", first.Sub(t0))
+	}
+	now = now.Add(time.Second)
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 5, 1, 1)})
+	if len(m.shots) != 4 {
+		t.Fatalf("shots = %d, want 4", len(m.shots))
+	}
+	for i := 1; i < len(m.shots); i++ {
+		if gap := m.shots[i].Start.Sub(m.shots[i-1].Start); gap < shotGap {
+			t.Errorf("shots %d and %d start %v apart; want at least %v", i-1, i, gap, shotGap)
+		}
+	}
+}
+
+func TestStarsForTheSameRepoShareANote(t *testing.T) {
+	now := t0
+	cur := starred(garden3(), 1, 1, 1)
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return cur, nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return now },
+	})
+	m = ready(m, 100, 30)
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 2, 1, 1)})
+	now = now.Add(5 * time.Second)
+	m, _ = step(m, loadedMsg{snap: starred(garden3(), 4, 1, 1)})
+	if len(m.notes) != 1 || m.notes[0].n != 3 {
+		t.Fatalf("notes = %+v; want one note of 3 new stars on bloom", m.notes)
+	}
+	if m.notes[0].until != now.Add(noteFor) {
+		t.Error("new stars should restart the note's minute")
+	}
+	lines := strings.Split(m.View(), "\n")
+	if last := visible(lines[len(lines)-1]); !strings.Contains(last, "⭐ 3 new stars on bloom") {
+		t.Errorf("ticker = %q", last)
+	}
+}
+
+func TestSkySettingReachesTheLiveView(t *testing.T) {
+	m := New(Config{
+		Load:      func(context.Context, func(Progress)) (Snapshot, error) { return starred(garden3(), 5, 0, 1), nil },
+		DecayDays: 45,
+		Now:       func() time.Time { return t0 },
+		Sky:       scene.SkyStars,
+	})
+	m = ready(m, 100, 30)
+	if v := m.sceneView(m.now()); v.Sky != scene.SkyStars || v.StarTotal != 6 {
+		t.Errorf("the live frame has sky %v with %d stars; want the star sky with 6", v.Sky, v.StarTotal)
+	}
+}

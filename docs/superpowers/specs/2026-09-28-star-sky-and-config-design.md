@@ -26,8 +26,9 @@ sky is a **setting**. GAG gets its first **config file** to hold it.
 - Add `stargazerCount` to the repo metadata query (`metaFields`), used by
   `ListRepos`, `ListOwnerRepos` and `LookupRepo`. It costs no extra API calls.
 - Store it as `github.Repo.Stars` (JSON `stars`) in the cache. A repo served
-  from cache within the TTL keeps its cached count. Caches from older
-  versions load with 0 until the next listing.
+  from cache within the TTL still takes the fresh count from the listing;
+  only offline loads use cached counts. Caches from older versions load
+  with 0 until the next listing.
 - The garden's star total is the sum of `Stars` over the repos being shown.
 
 ## 2. The star sky (`sky = stars`)

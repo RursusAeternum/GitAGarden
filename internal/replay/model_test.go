@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
+	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
 func step(m Model, msg tea.Msg) Model {
@@ -76,5 +77,18 @@ func TestReplaySkyIgnoresTheReplayClock(t *testing.T) {
 	noon := strings.SplitN(m.View(), "\n", 2)[0]
 	if night != noon {
 		t.Error("sky changed with the replay clock")
+	}
+}
+
+func TestReplayDrawsTheConfiguredSky(t *testing.T) {
+	night := time.Date(2026, 6, 1, 23, 0, 0, 0, time.Local)
+	frame := func(stars int) string {
+		m := newTestModel()
+		m.cfg.Now = func() time.Time { return night }
+		m.cfg.Sky, m.cfg.Stars = scene.SkyStars, stars
+		return m.View()
+	}
+	if frame(0) == frame(40) {
+		t.Error("replay ignores the star sky setting")
 	}
 }

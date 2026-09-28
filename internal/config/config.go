@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -164,7 +165,7 @@ func (c *Config) set(key, val string) string {
 		c.Refresh = d
 	case "decay":
 		f, err := strconv.ParseFloat(val, 64)
-		if err != nil || f <= 0 {
+		if err != nil || !(f > 0) || math.IsInf(f, 0) {
 			return fmt.Sprintf("decay %q isn't a number of days above 0; using %g", val, c.Decay)
 		}
 		c.Decay = f

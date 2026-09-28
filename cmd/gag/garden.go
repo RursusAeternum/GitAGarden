@@ -130,10 +130,21 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 func printOnce(src source, ahead time.Duration, simulate string, sky scene.SkyMode) error {
 	now := time.Now()
 	at := now.Add(ahead) // the moment the garden is drawn at
+	v, err := onceView(src, now, at, sky, termWidth())
+	if err != nil {
+		return err
+	}
 	header := ""
 	if ahead > 0 {
 		header = fmt.Sprintf("simulating %s ahead: %s, nothing tended\n\n", simulate, at.Format("2006-01-02"))
 	}
+	fmt.Print(header + scene.Draw(v).Encode(colorProfile()) + "\n")
+	return nil
+}
+
+// onceView is the static frame --once prints: the garden loaded at now,
+// drawn at time at, cols wide.
+func onceView(src source, now, at time.Time, sky scene.SkyMode, cols int) (scene.View, error) {
 	var plots []scene.Plot
 	stars := 0
 	if src.demo {
@@ -148,7 +159,7 @@ func printOnce(src source, ahead time.Duration, simulate string, sky scene.SkyMo
 		}
 		repos, offline, err := loadRepos(context.Background(), src.names, src.owner, src.limit, src.ttl, log, progress)
 		if err != nil {
-			return err
+			return scene.View{}, err
 		}
 		if offline {
 			logf("GitHub unreachable or partly stale; showing cached data")
@@ -158,9 +169,7 @@ func printOnce(src source, ahead time.Duration, simulate string, sky scene.SkyMo
 			stars += r.Stars
 		}
 	}
-	frame := scene.Draw(scene.View{Cols: termWidth(), Plots: plots, Now: at, Seed: 1, Sky: sky, StarTotal: stars})
-	fmt.Print(header + frame.Encode(colorProfile()) + "\n")
-	return nil
+	return scene.View{Cols: cols, Plots: plots, Now: at, Seed: 1, Sky: sky, StarTotal: stars}, nil
 }
 
 // demoItem is an open PR in the demo garden.
