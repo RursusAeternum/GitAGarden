@@ -48,6 +48,9 @@ func runGarden(args []string) error {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	opts := merge(loadConfig(), set, settings{limit: *limit, repos: list, user: *user, refresh: *refresh, decay: *decay})
+	if *demoFlag && !set["refresh"] {
+		opts.refresh = demoRefresh // the live demo acts out a change on every load
+	}
 
 	src := source{names: opts.repos, owner: opts.user, limit: opts.limit, ttl: *ttl, demo: *demoFlag, decay: opts.decay, state: &sourceState{}}
 	if *once || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -79,7 +82,8 @@ type source struct {
 
 // sourceState remembers what a live session has already shown.
 type sourceState struct {
-	real bool // a real GitHub garden has loaded
+	real  bool       // a real GitHub garden has loaded
+	world *demoWorld // the -demo garden in the live view: it changes on every load
 }
 
 // snapshot loads the repos and grows their plants for the live view. It
@@ -88,7 +92,13 @@ type sourceState struct {
 func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (live.Snapshot, error) {
 	now := time.Now()
 	if s.demo {
-		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden", Demo: true}, nil
+		if s.state == nil { // one frame: the demo as it starts
+			return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden", Demo: true}, nil
+		}
+		if s.state.world == nil {
+			s.state.world = newDemoWorld(now)
+		}
+		return s.state.world.snapshot(now), nil
 	}
 	ttl := s.ttl
 	if live.Forced(ctx) {

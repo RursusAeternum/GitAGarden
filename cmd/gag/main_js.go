@@ -42,11 +42,11 @@ func main() {
 	} else {
 		// Not source.snapshot: that reaches the GitHub client, and net/http
 		// with it, which doubles the size of the wasm.
+		world := newDemoWorld(time.Now())
 		load := func(context.Context, func(live.Progress)) (live.Snapshot, error) {
-			now := time.Now()
-			return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo garden", Demo: true}, nil
+			return world.snapshot(time.Now()), nil
 		}
-		m = live.New(live.Config{Load: load, DecayDays: 45, Profile: pixel.TrueColor})
+		m = live.New(live.Config{Load: load, Refresh: demoRefresh, DecayDays: 45, Profile: pixel.TrueColor})
 	}
 
 	in, keys := io.Pipe()

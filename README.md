@@ -139,6 +139,19 @@ then bursts of new issues.
 Species (`garden.SpeciesFor(language)`): **shrub** (branching, cbonsai-ish),
 **cactus** (column, arms, spines), **rosette** (low succulent with a flower stalk).
 
+## When something happens
+
+On every refresh GAG compares your repos with the last load, and the garden
+reacts:
+- a push waters the plant (a drone does it when an AI agent made the commit)
+- a merge bursts a bud and sends a butterfly off
+- a release sparkles and brings bees
+- a new issue sprouts a weed, and a closed one pulls it
+- a failing build rolls a storm in, and a fixed one clears it with a rainbow
+
+The ticker says what happened, and when the garden pans the camera goes to
+the plant. `gag garden -demo` acts all of this out every 30 seconds.
+
 ## Layout
 
 ```
