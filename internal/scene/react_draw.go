@@ -13,7 +13,6 @@ var (
 	canShine   = rgb(170, 200, 196)
 	droneBody  = rgb(150, 155, 165)
 	droneRotor = rgb(210, 215, 225)
-	dropColor  = rainColor // steel blue: darker than the day sky, lighter than the night
 	dirtColor  = rgb(120, 85, 55)
 	weedGreen  = rgb(130, 140, 60) // the garden's weed colour
 )
@@ -39,6 +38,7 @@ func drawWatering(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy, top in
 	} else if s < 1.6 {
 		drawCan(c, hoverX, hoverY, s > pour0)
 	}
+	drop := dropFor(r.Start.Add(age))
 	for k := 0; k < 6; k++ { // each drop falls for half a second
 		t := s - (pour0 + (pour1-pour0)*float64(k)/6)
 		if t < 0 || t > 0.5 {
@@ -47,8 +47,30 @@ func drawWatering(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy, top in
 		f := t / 0.5
 		x := hoverX - 2 - int(math.Round(f*float64(3+k%3)))
 		y := hoverY + 2 + int(math.Round(f*f*float64(top-hoverY)))
-		c.Set(x, y, dropColor)
+		c.Set(x, y, drop)
 	}
+}
+
+// dropBlues are the colours a drop can take. The sky passes through blues
+// at dawn and dusk, so each frame uses whichever stands out most.
+var dropBlues = []pixel.RGB{rainColor, rgb(200, 230, 255), rgb(30, 50, 110)}
+
+// dropFor is the drop colour that stands out most from the sky at now.
+func dropFor(now time.Time) pixel.RGB {
+	top, bottom := SkyAt(now)
+	best, far := dropBlues[0], -1
+	for _, c := range dropBlues {
+		if d := min(sqDist(c, top), sqDist(c, bottom)); d > far {
+			best, far = c, d
+		}
+	}
+	return best
+}
+
+// sqDist is the squared distance between two colours.
+func sqDist(a, b pixel.RGB) int {
+	dr, dg, db := int(a.R)-int(b.R), int(a.G)-int(b.G), int(a.B)-int(b.B)
+	return dr*dr + dg*dg + db*db
 }
 
 // drawCan is a small watering can at (x, y): a body 4 px wide, a handle on

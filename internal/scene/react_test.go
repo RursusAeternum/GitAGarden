@@ -106,12 +106,22 @@ func TestReactionColoursStandOut(t *testing.T) {
 	for _, now := range []time.Time{at(12, 0), at(23, 30)} {
 		top, bottom := SkyAt(now)
 		for name, col := range map[string]pixel.RGB{
-			"drops": dropColor, "gold sparkle": sparkGold, "white sparkle": sparkWhite, "drone": droneBody,
+			"gold sparkle": sparkGold, "white sparkle": sparkWhite, "drone": droneBody,
 			"rainbow red": rainbow[0], "rainbow yellow": rainbow[2], "rainbow violet": rainbow[5],
 		} {
 			if dist(col, top) < 60 || dist(col, bottom) < 60 {
 				t.Errorf("%s %v blends into the %s sky", name, col, now.Format("15:04"))
 			}
+		}
+	}
+}
+
+func TestDropsStandOutAllDay(t *testing.T) {
+	for m := 0; m < 24*60; m += 10 {
+		now := at(0, 0).Add(time.Duration(m) * time.Minute)
+		top, bottom := SkyAt(now)
+		if drop := dropFor(now); dist(drop, top) < 60 || dist(drop, bottom) < 60 {
+			t.Errorf("drops %v blend into the %s sky", drop, now.Format("15:04"))
 		}
 	}
 }
