@@ -51,8 +51,10 @@ Each **online** refresh is compared with the previous one, repo by repo:
 - **Bursts collapse:** a refresh gives each plant at most one reaction of
   each kind. The note names the newest item, and the counts cover the rest.
 - **Order:** a plant's reactions from one refresh play in the order push,
-  merge, release, new issue, closed issue, CI. They play one at a time,
-  starting at least 3 s apart.
+  merge, release, closed issue, new issue, CI. They play one at a time,
+  starting at least 3 s apart. (v0.7.1: the closed issue moved before the
+  new one, so when one issue closes and another opens, the old weed is
+  pulled and the new one comes up where it stood.)
 - **Several plants at once:** plants on screen play together.
 - **Plants off screen:** when the garden pans, the camera visits each changed
   plant that's off screen, one after another in garden order.
@@ -92,8 +94,13 @@ and night.
     refresh. Later ones in the same refresh use the old shape only to find
     their spot, such as the new flower or the new weed.
   - Until the "new shape" moment the old shape is drawn. After it, cells new
-    since the old shape fade or grow in, and cells gone from it vanish,
-    except a pulled weed, which lifts away.
+    since the old shape fade or grow in, and cells gone from it vanish.
+  - Weeds follow their own reactions, not the new shape (v0.7.1): a closed
+    issue's weed stays in the soil until its ✅ lifts it away, and a new
+    issue's weed comes up only as its 🐛 plays. A burst of new issues comes
+    up together.
+  - A plant with changes from two refreshes queued shows them one at a
+    time (v0.7.1).
 - **Where effects draw:**
   - They stay inside their plant's slot, except the butterfly, bees and
     drone, which fly beyond it.

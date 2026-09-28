@@ -171,3 +171,13 @@ func TestAMergesOwnCommitsAreNotAPush(t *testing.T) {
 		t.Errorf("a push after a merge: %+v, want the push and the merge", got)
 	}
 }
+
+func TestAClosedIssuePlaysBeforeANewOne(t *testing.T) {
+	after := baseRepo()
+	after.Detail.NewestIssue = Entry{Number: 31, Title: "Crash on empty repo", At: t0}
+	after.Detail.LastClosed = Entry{Number: 30, Title: "Old bug", At: t0}
+	got := ChangesBetween([]Repo{baseRepo()}, []Repo{after})
+	if len(got) != 2 || got[0].Kind != scene.ReactWeedOut || got[1].Kind != scene.ReactWeedIn {
+		t.Errorf("changes: %+v, want the closed issue's weed pulled before the new one comes up", got)
+	}
+}

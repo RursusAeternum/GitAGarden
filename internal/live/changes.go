@@ -27,7 +27,7 @@ type Change struct {
 }
 
 // ChangesBetween lists what happened from before to after: repos in after's
-// order and, per repo, push, merge, release, new issue, closed issue, then
+// order and, per repo, push, merge, release, closed issue, new issue, then
 // CI. There are none without a before, and none for repos that just joined,
 // repos sharing a short name, or finished repos.
 func ChangesBetween(before, after []Repo) []Change {
@@ -115,11 +115,13 @@ func changesOf(b, r Repo) []Change {
 	if d.Release.Title != "" && d.Release.Title != bd.Release.Title {
 		add(scene.ReactRelease, "✨", "released "+tickerText(d.Release.Title), "")
 	}
-	if d.NewestIssue.Number != 0 && d.NewestIssue.At.After(bd.NewestIssue.At) {
-		add(scene.ReactWeedIn, "🐛", fmt.Sprintf("#%d %s", d.NewestIssue.Number, tickerText(d.NewestIssue.Title)), "")
-	}
+	// A closed issue before a new one: its weed is pulled first, so a new
+	// weed can come up where it stood.
 	if d.LastClosed.Number != 0 && d.LastClosed.At.After(bd.LastClosed.At) {
 		add(scene.ReactWeedOut, "✅", fmt.Sprintf("closed #%d %s", d.LastClosed.Number, tickerText(d.LastClosed.Title)), "")
+	}
+	if d.NewestIssue.Number != 0 && d.NewestIssue.At.After(bd.NewestIssue.At) {
+		add(scene.ReactWeedIn, "🐛", fmt.Sprintf("#%d %s", d.NewestIssue.Number, tickerText(d.NewestIssue.Title)), "")
 	}
 	switch {
 	case r.CI == CIFailing && b.CI != CIFailing:
