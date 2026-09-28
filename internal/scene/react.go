@@ -80,6 +80,11 @@ func (r Reaction) ChangeAt() time.Duration {
 func (v View) shaped(i int, pl Plot) Plot {
 	if !pl.Finished {
 		pl = v.revealed(i, pl)
+		if n, ok := v.weedsShown(i); ok && n != pl.Plant.OpenIssues {
+			p := *pl.Plant
+			p.OpenIssues = n
+			pl.Plant = &p
+		}
 	}
 	for _, r := range v.Reactions {
 		if r.Plot != i+1 {
@@ -131,6 +136,37 @@ func (v View) revealed(i int, pl Plot) Plot {
 	return pl
 }
 
+// weedsShown is how many weeds plot i shows at v.Now while weed reactions
+// wait or play on it. Weeds follow their own reactions, not the plant's new
+// shape: a closed issue's weed stays until its reaction starts pulling it,
+// and a new issue's weeds only show once its reaction has grown them. ok is
+// false when there is no such reaction.
+func (v View) weedsShown(i int) (n int, ok bool) {
+	now := v.Plots[i].Plant
+	n = now.OpenIssues
+	for _, r := range v.Reactions {
+		if r.Plot != i+1 || r.Before == nil {
+			continue
+		}
+		switch age := v.Now.Sub(r.Start); {
+		case r.Kind == ReactWeedOut && age < 0:
+			n, ok = n+weedsLost(r.Before, now), true
+		case r.Kind == ReactWeedIn && age < growFor:
+			n, ok = n-weedsGained(r.Before, now), true
+		}
+	}
+	return max(n, 0), ok
+}
+
+// weedsGained is how many weeds a new-issue reaction brings up: at least one.
+func weedsGained(before, now *garden.Plant) int { return max(1, now.OpenIssues-before.OpenIssues) }
+
+// weedsLost is how many weeds a closed-issue reaction pulls: at least one,
+// when there was one to pull.
+func weedsLost(before, now *garden.Plant) int {
+	return min(before.OpenIssues, max(1, before.OpenIssues-now.OpenIssues))
+}
+
 // placedPlot is where Draw put a plot: its index, the column its slot is
 // centered on, and its bed's top pixel row.
 type placedPlot struct{ index, cx, oy int }
@@ -150,9 +186,9 @@ func drawReactions(c *pixel.Canvas, v View, p placedPlot) {
 		case ReactPush:
 			drawWatering(c, r, age, p.cx, p.oy, plantTop(pl.Plant, p.oy))
 		case ReactWeedIn:
-			drawWeedIn(c, r, age, p.cx, p.oy, pl.Plant)
+			drawWeedIn(c, r, age, p.cx, p.oy, v.shaped(p.index, pl).Plant, pl.Plant)
 		case ReactWeedOut:
-			drawWeedOut(c, r, age, p.cx, p.oy)
+			drawWeedOut(c, r, age, p.cx, p.oy, v.shaped(p.index, pl).Plant, pl.Plant)
 		case ReactMerge:
 			drawBurst(c, r, age, p.cx, p.oy, pl.Plant)
 		case ReactRelease:

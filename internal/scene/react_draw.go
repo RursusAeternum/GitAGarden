@@ -106,41 +106,56 @@ func drawDrone(c *pixel.Canvas, x, y int, secs float64) {
 	c.Set(x, y+2, critterInk)
 }
 
-// drawWeedIn draws a new issue: a puff of dirt where its weed comes up. The
-// weed itself grows in with the plant's new shape.
-func drawWeedIn(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, now *garden.Plant) {
-	s := age.Seconds()
-	if r.Before == nil || s >= 0.6 {
+// drawWeedIn draws a new issue: its weeds grow up from the soil with a puff
+// of dirt, next to the weeds shown already. shown is the plant as drawn this
+// frame, which doesn't count them yet; now is the plant after the change.
+func drawWeedIn(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown, now *garden.Plant) {
+	if r.Before == nil {
 		return
 	}
-	sp, ok := now.WeedSpot(r.Before.OpenIssues)
-	if !ok {
-		return
-	}
-	x, y := sp.At(cx, plantBase(oy))
-	a, lift := 1-s/0.6, int(s*4)
-	for k, d := range [][2]int{{-2, 0}, {2, 0}, {-1, -1}, {1, -1}} {
-		slotBlend(c, cx, x+d[0]*(1+lift/2), y+d[1]-lift*(k%2), dirtColor, a)
+	s, g := age.Seconds(), min(1, float64(age)/float64(growFor))
+	for k := 0; k < weedsGained(r.Before, now); k++ {
+		i := shown.OpenIssues + k
+		sp, ok := shown.WeedSpot(i)
+		if !ok {
+			continue
+		}
+		x, y := sp.At(cx, plantBase(oy))
+		if age < growFor { // as the garden paints a weed, growing up
+			slotBlend(c, cx, x, y, weedGreen, min(1, 2*g))
+			if i%2 == 0 {
+				slotBlend(c, cx, x, y-1, weedGreen.Scale(1.15), max(0, 2*g-1))
+			}
+		}
+		if s < 0.6 {
+			a, lift := 1-s/0.6, int(s*4)
+			for j, d := range [][2]int{{-2, 0}, {2, 0}, {-1, -1}, {1, -1}} {
+				slotBlend(c, cx, x+d[0]*(1+lift/2), y+d[1]-lift*(j%2), dirtColor, a)
+			}
+		}
 	}
 }
 
-// drawWeedOut draws a closed issue: the pulled weed lifts out of the soil,
-// rises and fades.
-func drawWeedOut(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int) {
-	if r.Before == nil || r.Before.OpenIssues == 0 {
+// drawWeedOut draws a closed issue: its weeds, the last ones shown until it
+// started, lift out of the soil, rise and fade. shown is the plant as drawn
+// this frame, which no longer counts them; now is the plant after the change.
+func drawWeedOut(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown, now *garden.Plant) {
+	if r.Before == nil {
 		return
 	}
-	i := r.Before.OpenIssues - 1 // the last weed is the one that goes
-	sp, ok := r.Before.WeedSpot(i)
-	if !ok {
-		return
-	}
-	x, y := sp.At(cx, plantBase(oy))
 	f := age.Seconds() / 1.5
 	lift, a := int(math.Round(f*8)), 1-f
-	slotBlend(c, cx, x, y-lift, weedGreen, a)
-	if i%2 == 0 {
-		slotBlend(c, cx, x, y-1-lift, weedGreen, a)
+	for k := 0; k < weedsLost(r.Before, now); k++ {
+		i := shown.OpenIssues + k
+		sp, ok := shown.WeedSpot(i)
+		if !ok {
+			continue
+		}
+		x, y := sp.At(cx, plantBase(oy))
+		slotBlend(c, cx, x, y-lift, weedGreen, a)
+		if i%2 == 0 {
+			slotBlend(c, cx, x, y-1-lift, weedGreen, a)
+		}
 	}
 }
 

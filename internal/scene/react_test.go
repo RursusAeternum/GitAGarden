@@ -236,3 +236,81 @@ func TestShapesStepThroughQueuedReveals(t *testing.T) {
 		}
 	}
 }
+
+// weedy is a small plant with opened issues, closed of them closed.
+func weedy(opened, closed int) *garden.Plant {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ev := []garden.Event{{Kind: garden.Push, At: t0}}
+	for i := 0; i < opened; i++ {
+		ev = append(ev, garden.Event{Kind: garden.IssueOpened, At: t0})
+	}
+	for i := 0; i < closed; i++ {
+		ev = append(ev, garden.Event{Kind: garden.IssueClosed, At: t0})
+	}
+	return garden.Grow("weeds", garden.Shrub, ev)
+}
+
+func TestWeedsFollowTheirReactions(t *testing.T) {
+	start := at(14, 0)
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	plot := func(p *garden.Plant) Plot { return Plot{Plant: p, Style: garden.Style{Health: 1}, Name: "weeds"} }
+	three, one := weedy(3, 0), weedy(1, 0)
+	type at struct {
+		into time.Duration
+		want int
+	}
+	for _, c := range []struct {
+		name   string
+		now    *garden.Plant
+		reacts []Reaction
+		checks []at
+	}{
+		{"a push, then a closed issue", weedy(3, 1), []Reaction{
+			{Plot: 1, Kind: ReactPush, Start: start, Before: three, Reveals: true},
+			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(3 * time.Second), Before: three},
+		}, []at{{ms(500), 3}, {ms(1500), 3}, {ms(3200), 2}}},
+		{"one closed, one opened", weedy(4, 1), []Reaction{
+			{Plot: 1, Kind: ReactWeedOut, Start: start, Before: three, Reveals: true},
+			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(3 * time.Second), Before: three},
+		}, []at{{ms(-1000), 3}, {ms(500), 2}, {ms(3500), 2}, {ms(4500), 3}}},
+		{"a closed issue on a plant without weeds", weedy(0, 0), []Reaction{
+			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(time.Second), Before: weedy(0, 0), Reveals: true},
+		}, []at{{ms(500), 0}, {ms(1500), 0}}},
+		{"a burst of new issues", weedy(4, 0), []Reaction{
+			{Plot: 1, Kind: ReactWeedIn, Start: start, Before: one, Reveals: true},
+		}, []at{{ms(-500), 1}, {ms(500), 1}, {ms(1200), 4}}},
+	} {
+		pl := plot(c.now)
+		for _, chk := range c.checks {
+			v := View{Plots: []Plot{pl}, Now: start.Add(chk.into), Reactions: c.reacts}
+			if got := v.shaped(0, pl).Plant.OpenIssues; got != chk.want {
+				t.Errorf("%s, %v in: %d weeds, want %d", c.name, chk.into, got, chk.want)
+			}
+		}
+	}
+}
+
+func TestABurstOfWeedsComesUpTogether(t *testing.T) {
+	start, now := at(14, 0), weedy(4, 0)
+	v := View{Cols: BedCols, Plots: []Plot{{Plant: now, Style: garden.Style{Health: 1}, Name: "weeds"}}, Now: start}
+	cx := BedCols / 2
+	weedAt := func(c *pixel.Canvas, i int) bool {
+		sp, ok := now.WeedSpot(i)
+		x, y := sp.At(cx, plantBaseY)
+		return ok && c.At(x, y) == weedGreen
+	}
+	plain := Draw(v)
+	for i := 0; i < 4; i++ {
+		if !weedAt(plain, i) {
+			t.Fatalf("weed %d isn't where the test looks for it", i)
+		}
+	}
+	v.Now = start.Add(900 * time.Millisecond)
+	v.Reactions = []Reaction{{Plot: 1, Kind: ReactWeedIn, Start: start, Before: weedy(1, 0), Reveals: true}}
+	growing := Draw(v)
+	for i := 1; i < 4; i++ {
+		if !weedAt(growing, i) {
+			t.Errorf("new weed %d hasn't come up 0.9 s in", i)
+		}
+	}
+}
