@@ -13,6 +13,7 @@ import (
 type Commit struct {
 	At      time.Time `json:"at"`
 	Message string    `json:"msg"`
+	Agent   string    `json:"agent,omitempty"` // the AI coding agent behind it; "" for people
 }
 
 type PR struct {

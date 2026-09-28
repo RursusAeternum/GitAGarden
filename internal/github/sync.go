@@ -26,7 +26,7 @@ type pageInfo struct {
 // commitsSince fetches default-branch commits newer than since (all of them
 // when since is zero), newest first.
 func (c *Client) commitsSince(ctx context.Context, owner, name string, since time.Time) ([]Commit, error) {
-	q := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp){repository(owner:$owner,name:$name){defaultBranchRef{target{... on Commit{history(first:100,after:$after,since:$since){pageInfo{hasNextPage endCursor} nodes{committedDate messageHeadline}}}}}}}`
+	q := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp){repository(owner:$owner,name:$name){defaultBranchRef{target{... on Commit{history(first:100,after:$after,since:$since){pageInfo{hasNextPage endCursor} nodes{committedDate messageHeadline authors(first:3){nodes{name email user{login}}}}}}}}}}`
 	vars := map[string]any{"owner": owner, "name": name, "after": nil, "since": nil}
 	if !since.IsZero() {
 		vars["since"] = since.Add(time.Second).UTC().Format(time.RFC3339)
@@ -42,6 +42,7 @@ func (c *Client) commitsSince(ctx context.Context, owner, name string, since tim
 							Nodes    []struct {
 								CommittedDate   time.Time
 								MessageHeadline string
+								Authors         struct{ Nodes []gitActor }
 							}
 						}
 					}
@@ -57,7 +58,7 @@ func (c *Client) commitsSince(ctx context.Context, owner, name string, since tim
 		}
 		h := ref.Target.History
 		for _, n := range h.Nodes {
-			all = append(all, Commit{At: n.CommittedDate, Message: n.MessageHeadline})
+			all = append(all, Commit{At: n.CommittedDate, Message: n.MessageHeadline, Agent: agentOf(n.Authors.Nodes)})
 		}
 		if !h.PageInfo.HasNextPage {
 			break
