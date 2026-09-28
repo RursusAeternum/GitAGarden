@@ -38,19 +38,28 @@ func DrawCritters(c *pixel.Canvas, t time.Time, hosts []Host, seed int64) {
 		x := h.X + int(math.Round(7*math.Sin(speed*secs+phase)))
 		y := h.Y + int(math.Round(4*math.Sin(2*speed*secs+phase)))
 		if i%2 == 0 {
-			c.Set(x, y, beeBody)
-			c.Set(x+1, y, critterInk)
-			c.Set(x, y-1, beeWing)
+			drawBee(c, x, y)
 			continue
 		}
-		wing := wingColors[i%len(wingColors)]
-		c.Set(x, y, critterInk)
-		if int(secs*6)%2 == 0 { // wings open
-			c.Set(x-1, y-1, wing)
-			c.Set(x+1, y-1, wing)
-		} else {
-			c.Set(x-1, y, wing)
-			c.Set(x+1, y, wing)
-		}
+		drawButterfly(c, x, y, wingColors[i%len(wingColors)], int(secs*6)%2 == 0)
+	}
+}
+
+// drawBee is a bee at (x, y): a yellow body, a dark tail and a pale wing.
+func drawBee(c *pixel.Canvas, x, y int) {
+	c.Set(x, y, beeBody)
+	c.Set(x+1, y, critterInk)
+	c.Set(x, y-1, beeWing)
+}
+
+// drawButterfly is a butterfly at (x, y) with wings of wing, open or closed.
+func drawButterfly(c *pixel.Canvas, x, y int, wing pixel.RGB, open bool) {
+	c.Set(x, y, critterInk)
+	if open {
+		c.Set(x-1, y-1, wing)
+		c.Set(x+1, y-1, wing)
+	} else {
+		c.Set(x-1, y, wing)
+		c.Set(x+1, y, wing)
 	}
 }

@@ -127,6 +127,14 @@ func drawReactions(c *pixel.Canvas, v View, p placedPlot) {
 			drawWeedIn(c, r, age, p.cx, p.oy, pl.Plant)
 		case ReactWeedOut:
 			drawWeedOut(c, r, age, p.cx, p.oy)
+		case ReactMerge:
+			drawBurst(c, r, age, p.cx, p.oy, pl.Plant)
+		case ReactRelease:
+			drawSparkle(c, r, age, p.cx, p.oy, pl.Plant)
+		case ReactStorm:
+			drawStormIn(c, age, p.cx, p.oy)
+		case ReactClear:
+			drawClearing(c, age, p.cx, p.oy)
 		}
 	}
 }

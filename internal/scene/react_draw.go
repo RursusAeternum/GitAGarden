@@ -121,3 +121,123 @@ func drawWeedOut(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int) {
 		slotBlend(c, cx, x, y-1-lift, weedGreen, a)
 	}
 }
+
+var (
+	budPink    = rgb(235, 110, 150)
+	petalColor = rgb(255, 170, 210)
+	sparkGold  = rgb(255, 215, 90)
+	sparkWhite = rgb(255, 255, 255)
+	rainbow    = []pixel.RGB{rgb(230, 80, 70), rgb(240, 150, 60), rgb(240, 220, 90),
+		rgb(110, 200, 100), rgb(90, 150, 230), rgb(150, 110, 210)}
+)
+
+// drawBurst draws a merge. A bud swells where the new flower opens and
+// bursts into petals at the change moment, then a butterfly lifts off and
+// flies away.
+func drawBurst(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, now *garden.Plant) {
+	x, y := cx, plantTop(now, oy)
+	if r.Before != nil {
+		if spots := now.NewSpots(r.Before, garden.Flower); len(spots) > 0 {
+			x, y = spots[0].At(cx, plantBase(oy))
+		}
+	}
+	s := age.Seconds()
+	switch {
+	case s < 0.6:
+		slotBlend(c, cx, x, y, budPink, 1)
+		for _, d := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+			slotBlend(c, cx, x+d[0], y+d[1], budPink, s/0.6)
+		}
+	case s < 1.0:
+		f := (s - 0.6) / 0.4
+		rad := 1 + f*3
+		for k := 0; k < 8; k++ {
+			th := float64(k) * math.Pi / 4
+			slotBlend(c, cx, x+int(math.Round(rad*math.Cos(th))), y+int(math.Round(rad*math.Sin(th))), petalColor, 1-f/2)
+		}
+	}
+	if s >= 1.0 {
+		f := (s - 1.0) / 2.0
+		bx := x + int(math.Round(f*14))
+		by := y - int(math.Round(f*18)) + int(math.Round(math.Sin(s*9)))
+		drawButterfly(c, bx, by, wingColors[int(r.Seed&0xff)%len(wingColors)], int(s*6)%2 == 0)
+	}
+}
+
+// drawSparkle draws a release: gold and white sparkles burst out around the
+// plant, then two bees circle it and leave.
+func drawSparkle(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, now *garden.Plant) {
+	s := age.Seconds()
+	mx, my := cx, (plantTop(now, oy)+plantBase(oy))/2
+	if s < 1.5 {
+		rad, a := 3+7*s/1.5, 1-s/1.5
+		for k := 0; k < 10; k++ {
+			th := float64(k)*math.Pi/5 + noise(r.Seed, k, 1)
+			x, y := mx+int(math.Round(rad*math.Cos(th))), my+int(math.Round(rad*0.8*math.Sin(th)))
+			slotBlend(c, cx, x, y, sparkWhite, a)
+			for _, d := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+				slotBlend(c, cx, x+d[0], y+d[1], sparkGold, a*0.8)
+			}
+		}
+	}
+	if s >= 1.0 {
+		t := s - 1.0
+		out := math.Max(0, t-2.2) / 0.8 // in their last 0.8 s they fly off
+		for i := 0; i < 2; i++ {
+			th, rad := 2.4*t+float64(i)*math.Pi, 7+20*out
+			drawBee(c, mx+int(math.Round(rad*math.Cos(th))), my+int(math.Round(rad*0.6*math.Sin(th))))
+		}
+	}
+}
+
+// drawStormIn draws CI going red. The storm cloud slides down into place,
+// darkening as it comes, and flashes once as it arrives; after that the
+// plot's steady storm takes over.
+func drawStormIn(c *pixel.Canvas, age time.Duration, cx, oy int) {
+	top, s := max(oy, 0), age.Seconds()
+	if s < 1.5 {
+		f := s / 1.5
+		cloudIn(c, cx, cx, top-5+int(math.Round(f*6)), 8, pixel.Lerp(greyCloud, stormCloud, f), 1, top)
+		return
+	}
+	if s < 1.8 {
+		for i, dx := range []int{-1, 0, -1, 0, 1} {
+			c.Set(cx+dx, top+3+i, lightning)
+		}
+	}
+}
+
+// drawClearing draws CI recovering: the storm cloud drifts off and fades,
+// and a rainbow arcs over the plant, fading in and out.
+func drawClearing(c *pixel.Canvas, age time.Duration, cx, oy int) {
+	top, s := max(oy, 0), age.Seconds()
+	if s < 1.5 {
+		f := s / 1.5
+		cloudIn(c, cx, cx+int(math.Round(f*6)), top+1, 8, stormCloud, 1-f, top)
+	}
+	if s < 1.0 || s >= 5.0 {
+		return
+	}
+	a := 0.85 * math.Min(1, (s-1.0)/0.5) * math.Min(1, (5.0-s)/0.5)
+	for b, col := range rainbow {
+		rad := float64(10 - b)
+		for k := 0; k <= 24; k++ {
+			th := math.Pi + math.Pi*float64(k)/24
+			slotBlend(c, cx, cx+int(math.Round(rad*math.Cos(th))), top+13+int(math.Round(rad*0.7*math.Sin(th))), col, a)
+		}
+	}
+}
+
+// cloudIn draws a cloud the shape of puff, centered on column x with its base
+// on row y+1, blended by a. It is clipped to the slot centered on slotCx and
+// to rows from minY down.
+func cloudIn(c *pixel.Canvas, slotCx, x, y, half int, col pixel.RGB, a float64, minY int) {
+	for dx := -half; dx <= half; dx++ {
+		for _, yy := range []int{y - 1, y, y + 1} {
+			in := yy == y+1 || (yy == y && dx > -half && dx < half) || (yy == y-1 && dx >= -half/2 && dx <= half/2)
+			if in && yy >= minY {
+				slotBlend(c, slotCx, x+dx, yy, col, a)
+			}
+		}
+	}
+}
