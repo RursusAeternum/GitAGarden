@@ -35,7 +35,7 @@ func (m *Model) noticeChanges(snap Snapshot) {
 	}
 	m.seenDemo = snap.Demo
 	changes := ChangesBetween(m.seen, snap.Repos)
-	m.seen = snap.Repos
+	m.seen = settled(m.seen, snap.Repos)
 	if m.seen == nil {
 		m.seen = []Repo{} // loaded, even if empty: the next load compares with it
 	}

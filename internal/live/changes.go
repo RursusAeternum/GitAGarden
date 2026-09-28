@@ -2,6 +2,7 @@ package live
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -36,6 +37,21 @@ func ChangesBetween(before, after []Repo) []Change {
 			continue
 		}
 		out = append(out, changesOf(b, r)...)
+	}
+	return out
+}
+
+// settled is after as the next load compares with it. A repo whose CI is
+// running, or unknown for a moment, keeps the passing or failing state it
+// last settled on: a fix that runs and then passes still clears the storm,
+// and a failed check fetch doesn't roll it in again.
+func settled(before, after []Repo) []Repo {
+	was := unique(before)
+	out := slices.Clone(after)
+	for i, r := range out {
+		if b, ok := was[r.Name]; ok && (r.CI == CIPending || r.CI == CIUnknown) && (b.CI == CIPassing || b.CI == CIFailing) {
+			out[i].CI = b.CI
+		}
 	}
 	return out
 }

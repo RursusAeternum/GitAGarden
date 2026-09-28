@@ -225,3 +225,27 @@ func BenchmarkLiveFrameWithReactions(b *testing.B) {
 		_ = m.View()
 	}
 }
+
+func TestCIComparesWithItsLastSettledState(t *testing.T) {
+	now := t0
+	withCI := func(ci ...CI) Snapshot {
+		s := garden3()
+		for i, c := range ci {
+			s.Repos[i].CI, s.Repos[i].Branch = c, "main"
+		}
+		return s
+	}
+	m := ready(clocked(withCI(CIFailing, CIFailing, CIPassing), &now), 100, 30)
+	// bloom: a fix runs, then passes. quiet: a failed check fetch in between.
+	// seed: a run that fails.
+	for _, snap := range []Snapshot{withCI(CIPending, CIUnknown, CIPending), withCI(CIPassing, CIFailing, CIFailing)} {
+		m, _ = step(m, loadedMsg{snap: snap})
+	}
+	var got []string
+	for _, r := range m.reacts {
+		got = append(got, fmt.Sprintf("%s %v", r.repo, r.anim.Kind))
+	}
+	if want := fmt.Sprint([]string{fmt.Sprintf("bloom %v", scene.ReactClear), fmt.Sprintf("seed %v", scene.ReactStorm)}); fmt.Sprint(got) != want {
+		t.Errorf("reactions = %v, want %v", got, want)
+	}
+}
