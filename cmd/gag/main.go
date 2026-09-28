@@ -5,6 +5,8 @@
 //	gag replay   time-lapse of one plant growing from its history
 //	gag config   where the config file is, and the settings in effect
 //	gag version
+//
+// Built for js/wasm it is the browser demo instead (main_js.go, web/).
 package main
 
 import (
@@ -25,30 +27,6 @@ import (
 
 // version is stamped at release time by GoReleaser.
 var version = "dev"
-
-func main() {
-	cmd, args := "garden", os.Args[1:]
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		cmd, args = args[0], args[1:]
-	}
-	var err error
-	switch cmd {
-	case "replay":
-		err = runReplay(args)
-	case "garden":
-		err = runGarden(args)
-	case "config":
-		err = runConfig()
-	case "version", "--version", "-v":
-		fmt.Println("gag", version)
-	default:
-		err = fmt.Errorf("unknown command %q (want garden, replay, config or version)", cmd)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "gag:", err)
-		os.Exit(1)
-	}
-}
 
 func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
 

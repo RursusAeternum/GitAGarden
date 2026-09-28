@@ -6,6 +6,8 @@ push and merge, gets weeds for open issues, wilts when neglected, and goes
 under a glass cloche when it's finished, all under a sky that follows your
 clock.
 
+Try the demo garden in your browser: <https://kaine.at/demo/gag/>
+
 ## Install
 
 **Homebrew** (macOS, Linux):
@@ -143,7 +145,20 @@ internal/scene/     sky, clouds, weather, critters, pots, beds and layout
 internal/pixel/     RGB canvas encoded as half-block terminal text
 internal/live/      the live Bubble Tea view and its ticker
 internal/replay/    Bubble Tea time-lapse of one plant
+web/                the browser demo: build script, page, Bubble Tea js stubs
 ```
+
+## In a browser
+
+```sh
+web/build.sh            # -> web/dist/: index.html, gag.wasm, vendor/
+```
+
+Builds gag for WebAssembly (`cmd/gag/main_js.go`) onto a page where
+[xterm.js](https://xtermjs.org) is the terminal: the demo garden and replay,
+no server and no GitHub. Needs `go` and `npm`. Bubble Tea v1 can't build for
+js, so the script builds against a temporary copy of it with the stubs in
+`web/_bubbletea/`; the repo's `go.mod` is left alone.
 
 ## Raspberry Pi
 
