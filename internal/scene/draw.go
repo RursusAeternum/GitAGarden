@@ -21,6 +21,7 @@ type View struct {
 	Shooting   []Shooting // shooting stars, drawn while in flight
 	Selected   int        // 1 + the selected plot's index; 0, the zero value, selects none
 	Card       *Card      // the selected plot's detail card; nil for none
+	Reactions  []Reaction // change animations on plots, playing or waiting
 }
 
 // Layout is how plots are arranged in a frame.
@@ -54,6 +55,7 @@ func Draw(v View) *pixel.Canvas {
 	g := geometryOf(v)
 	c := pixel.New(g.cols, g.h)
 	var hosts []Host
+	var placed []placedPlot
 	for b := 0; b < g.lay.Beds; b++ {
 		oy := g.bedTop(b)
 		skyTop := oy
@@ -77,7 +79,8 @@ func Draw(v View) *pixel.Canvas {
 		}
 		DrawGround(c, oy+groundTop, oy+bedPx, v.Seed)
 		for _, s := range g.slots(v, b) {
-			pl := v.Plots[s.index]
+			pl := v.shaped(s.index, v.Plots[s.index])
+			placed = append(placed, placedPlot{s.index, s.cx, oy})
 			selected := v.Selected == s.index+1
 			if selected {
 				lightGround(c, s.cx, oy+groundTop, oy+bedPx)
@@ -90,6 +93,9 @@ func Draw(v View) *pixel.Canvas {
 	}
 	if v.Motion {
 		DrawCritters(c, v.Now, hosts, v.Seed)
+	}
+	for _, p := range placed {
+		drawReactions(c, v, p)
 	}
 	if v.Card != nil {
 		drawCard(c, v)
