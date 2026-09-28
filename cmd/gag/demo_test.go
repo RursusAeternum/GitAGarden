@@ -51,3 +51,16 @@ func TestDemoWorldStartsAsTheDemo(t *testing.T) {
 		}
 	}
 }
+
+func TestNoTokenFallbackStaysStill(t *testing.T) {
+	now := time.Now()
+	for _, st := range []*sourceState{{}, nil} { // a live session, and one-shot use
+		first := st.fallback(now)
+		if changes := live.ChangesBetween(first, st.fallback(now.Add(5*time.Minute))); st != nil && len(changes) != 0 {
+			t.Errorf("the no-token garden changed between loads: %+v", changes)
+		}
+		if len(first) != len(demo) {
+			t.Errorf("the fallback shows %d repos, want the %d demo ones", len(first), len(demo))
+		}
+	}
+}

@@ -84,6 +84,20 @@ type source struct {
 type sourceState struct {
 	real  bool       // a real GitHub garden has loaded
 	world *demoWorld // the -demo garden in the live view: it changes on every load
+	still *demoWorld // the no-token fallback: the demo as it started, never changing
+}
+
+// fallback is the demo garden shown without a GitHub token. It stays still:
+// a live session keeps the world it first showed, so later loads find
+// nothing new to react to.
+func (st *sourceState) fallback(now time.Time) []live.Repo {
+	if st == nil {
+		return demoGarden(now)
+	}
+	if st.still == nil {
+		st.still = newDemoWorld(now)
+	}
+	return st.still.garden(now)
 }
 
 // snapshot loads the repos and grows their plants for the live view. It
@@ -112,7 +126,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 	}
 	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil, report)
 	if errors.Is(err, github.ErrNoToken) && (s.state == nil || !s.state.real) {
-		return live.Snapshot{Repos: demoGarden(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login", Demo: true}, nil
+		return live.Snapshot{Repos: s.state.fallback(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login", Demo: true}, nil
 	}
 	if err != nil {
 		return live.Snapshot{}, err // mid-session, even a lost token keeps the real garden on screen
