@@ -190,11 +190,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !msg.snap.Offline && !msg.snap.Demo { // cached or fake counts are no news
 				m.noticeNewStars(msg.snap.Repos)
 			}
+			if m.sel.name != "" && m.selected() < 0 {
+				m.unselect() // its repo left the garden; the camera is free to visit
+			}
 			if !msg.snap.Offline {
 				m.noticeChanges(msg.snap)
-			}
-			if m.sel.name != "" && m.selected() < 0 {
-				m.unselect() // its repo left the garden
 			}
 			m.keepOnScreen() // the garden or its order may have changed
 		}

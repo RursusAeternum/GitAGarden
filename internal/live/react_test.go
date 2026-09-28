@@ -292,3 +292,22 @@ func TestVisitsGoInGardenOrder(t *testing.T) {
 		t.Errorf("visits = %v, want %v", got, want)
 	}
 }
+
+func TestSelectedRepoLeavingStillVisits(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	m, _ = step(m, arrow(tea.KeyRight))
+	gone := m.sel.name
+	after := eight()
+	var kept []Repo
+	for i, r := range after.Repos {
+		if r.Name != gone {
+			kept = append(kept, pushedTo(r, 25, t0, fmt.Sprintf("change %d", i), ""))
+		}
+	}
+	after.Repos = kept
+	m, _ = step(m, loadedMsg{snap: after})
+	if m.sel.name != "" || len(m.visits) == 0 {
+		t.Errorf("selected %q, visits %+v: with the selection gone the camera should visit", m.sel.name, m.visits)
+	}
+}
