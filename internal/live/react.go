@@ -45,7 +45,11 @@ func (m *Model) noticeChanges(snap Snapshot) {
 
 // schedule queues each changed plant's reactions. Plants on screen start at
 // once. When the garden pans and nothing is selected, the camera then visits
-// the others in turn, and their reactions start as it arrives.
+// the others in turn, in garden order, and their reactions start as it
+// arrives; the first visit waits for every reaction already queued. While
+// the camera still has visits to make, every changed plant joins the end of
+// them, even one on screen now: by its turn the camera will have moved. A
+// plant the visits already end on keeps that visit, for longer.
 func (m *Model) schedule(changes []Change) {
 	if len(changes) == 0 {
 		return
@@ -57,8 +61,9 @@ func (m *Model) schedule(changes []Change) {
 		on[i] = true
 	}
 	visiting := m.layout().Overflow && m.sel.name == ""
+	busy := visiting && len(m.visits) > 0
 	var later [][]Change
-	nextVisit := base
+	nextVisit := laterOf(base, m.lastEnd())
 	for len(changes) > 0 {
 		n := 1
 		for n < len(changes) && changes[n].Repo == changes[0].Repo {
@@ -70,11 +75,11 @@ func (m *Model) schedule(changes []Change) {
 		if i < 0 {
 			continue
 		}
-		if visiting && !on[i] {
+		if visiting && (busy || !on[i]) {
 			later = append(later, group)
 			continue
 		}
-		if end := m.queue(group, laterOf(base, m.queueEnd(group[0].Repo))); end.After(nextVisit) {
+		if end := m.queue(group, laterOf(base, m.nextStart(group[0].Repo))); end.After(nextVisit) {
 			nextVisit = end
 		}
 	}
@@ -85,10 +90,17 @@ func (m *Model) schedule(changes []Change) {
 		return m.indexOf(a[0].Repo) - m.indexOf(b[0].Repo)
 	})
 	for _, group := range later {
-		from := laterOf(nextVisit, m.queueEnd(group[0].Repo))
-		end := m.queue(group, from.Add(scene.SlideFor))
+		repo := group[0].Repo
+		if last := len(m.visits) - 1; last >= 0 && m.visits[last].repo == repo {
+			end := m.queue(group, laterOf(base, m.nextStart(repo)))
+			m.visits[last].until = laterOf(m.visits[last].until, end.Add(visitLinger))
+			nextVisit = m.visits[last].until
+			continue
+		}
+		from := nextVisit
+		end := m.queue(group, laterOf(from.Add(scene.SlideFor), m.nextStart(repo)))
 		nextVisit = end.Add(visitLinger)
-		m.visits = append(m.visits, visit{repo: group[0].Repo, from: from, until: nextVisit})
+		m.visits = append(m.visits, visit{repo: repo, from: from, until: nextVisit})
 	}
 }
 
@@ -109,13 +121,24 @@ func (m *Model) queue(group []Change, start time.Time) time.Time {
 	return end
 }
 
-// queueEnd is when repo's last scheduled reaction ends; zero when none.
-func (m Model) queueEnd(repo string) time.Time {
+// nextStart is the soonest repo's next reaction can start: once its last
+// one has ended, and at least reactGap after that one started. Zero when
+// none is queued.
+func (m Model) nextStart(repo string) time.Time {
+	var t time.Time
+	for _, r := range m.reacts {
+		if r.repo == repo {
+			t = laterOf(t, laterOf(r.anim.Start.Add(r.anim.Duration()), r.anim.Start.Add(reactGap)))
+		}
+	}
+	return t
+}
+
+// lastEnd is when the last reaction queued on any plant ends; zero when none.
+func (m Model) lastEnd() time.Time {
 	var end time.Time
 	for _, r := range m.reacts {
-		if e := r.anim.Start.Add(r.anim.Duration()); r.repo == repo && e.After(end) {
-			end = e
-		}
+		end = laterOf(end, r.anim.Start.Add(r.anim.Duration()))
 	}
 	return end
 }

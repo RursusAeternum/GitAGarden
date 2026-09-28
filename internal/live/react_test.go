@@ -335,3 +335,77 @@ func TestResizeDuringAVisitKeepsThePlantInView(t *testing.T) {
 		}
 	}
 }
+
+// visitNames lists the plants the camera will visit, in order.
+func visitNames(m Model) []string {
+	var out []string
+	for _, v := range m.visits {
+		out = append(out, v.repo)
+	}
+	return out
+}
+
+func TestChangesWaitForTheVisitChain(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	near := scene.OnScreen(m.sceneView(m.now()))[0]
+	first := eight()
+	first.Repos[6] = pushedTo(first.Repos[6], 25, t0, "far away", "")
+	m, _ = step(m, loadedMsg{snap: first})
+	second := first
+	second.Repos = append([]Repo(nil), first.Repos...)
+	second.Repos[near] = pushedTo(second.Repos[near], 25, t0, "on screen now", "")
+	m, _ = step(m, loadedMsg{snap: second})
+	name := m.repos[near].Name
+	if want := []string{"p6", name}; fmt.Sprint(visitNames(m)) != fmt.Sprint(want) {
+		t.Fatalf("visits = %v, want %v", visitNames(m), want)
+	}
+	for _, r := range m.reacts {
+		if r.repo == name && r.anim.Start.Before(m.visits[0].until) {
+			t.Errorf("%s reacts at %v, before the camera is done with p6 at %v", name, r.anim.Start, m.visits[0].until)
+		}
+	}
+}
+
+func TestVisitsWaitForReactionsOnScreen(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	near := scene.OnScreen(m.sceneView(m.now()))[0]
+	first := eight()
+	r := pushedTo(first.Repos[near], 25, t0, "on screen", "")
+	r.CI, r.Branch = CIFailing, "main" // a push, then a storm
+	first.Repos[near] = r
+	m, _ = step(m, loadedMsg{snap: first})
+	busy := m.lastEnd() // its push and storm
+	now = now.Add(time.Second)
+	second := first
+	second.Repos = append([]Repo(nil), first.Repos...)
+	second.Repos[6] = pushedTo(second.Repos[6], 25, t0, "far away", "")
+	m, _ = step(m, loadedMsg{snap: second})
+	if len(m.visits) != 1 || m.visits[0].from.Before(busy) {
+		t.Errorf("visits %+v: the camera should wait until %s is done at %v", m.visits, r.Name, busy)
+	}
+}
+
+func TestAPlantKeepsOneVisit(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	first := eight()
+	first.Repos[6] = pushedTo(first.Repos[6], 25, t0, "far away", "")
+	m, _ = step(m, loadedMsg{snap: first})
+	now = now.Add(time.Second)
+	second := first
+	second.Repos = append([]Repo(nil), first.Repos...)
+	second.Repos[6] = pushedTo(first.Repos[6], 27, now, "further", "")
+	m, _ = step(m, loadedMsg{snap: second})
+	if len(m.visits) != 1 || len(m.reacts) != 2 {
+		t.Fatalf("visits %v, %d reactions: want one visit for both", visitNames(m), len(m.reacts))
+	}
+	a, b := m.reacts[0].anim, m.reacts[1].anim
+	if b.Start.Sub(a.Start) < reactGap || b.Start.Before(a.Start.Add(a.Duration())) {
+		t.Errorf("the second push starts %v after the first", b.Start.Sub(a.Start))
+	}
+	if end := b.Start.Add(b.Duration()); m.visits[0].until.Before(end.Add(visitLinger)) {
+		t.Errorf("the visit ends at %v, before the second push is done at %v", m.visits[0].until, end)
+	}
+}
