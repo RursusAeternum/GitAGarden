@@ -264,3 +264,31 @@ func TestNoteTextKeepsCombiningMarks(t *testing.T) {
 		checkSize(t, m.View(), 100, 30)
 	}
 }
+
+func TestVisitsGoInGardenOrder(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	on := scene.OnScreen(m.sceneView(m.now()))
+	var off []int
+	for i := range m.repos {
+		if !contains(on, i) {
+			off = append(off, i)
+		}
+	}
+	if len(off) < 2 {
+		t.Fatalf("need two plants off screen; on screen: %v", on)
+	}
+	a, b := off[0], off[len(off)-1]
+	after := eight()
+	after.Repos[a] = pushedTo(after.Repos[a], 25, t0, "earlier in the garden", "")
+	after.Repos[b] = pushedTo(after.Repos[b], 25, t0, "pushed last", "")
+	after.Repos[a], after.Repos[b] = after.Repos[b], after.Repos[a] // GitHub lists the newest push first
+	m, _ = step(m, loadedMsg{snap: after})
+	var got []string
+	for _, v := range m.visits {
+		got = append(got, v.repo)
+	}
+	if want := []string{m.repos[a].Name, m.repos[b].Name}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("visits = %v, want %v", got, want)
+	}
+}

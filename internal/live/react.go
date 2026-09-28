@@ -1,6 +1,7 @@
 package live
 
 import (
+	"slices"
 	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/scene"
@@ -80,6 +81,9 @@ func (m *Model) schedule(changes []Change) {
 	for _, v := range m.visits {
 		nextVisit = laterOf(nextVisit, v.until)
 	}
+	slices.SortStableFunc(later, func(a, b []Change) int { // in garden order
+		return m.indexOf(a[0].Repo) - m.indexOf(b[0].Repo)
+	})
 	for _, group := range later {
 		from := laterOf(nextVisit, m.queueEnd(group[0].Repo))
 		end := m.queue(group, from.Add(scene.SlideFor))
