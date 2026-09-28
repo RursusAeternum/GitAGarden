@@ -47,11 +47,18 @@ func (m *Model) choose(i int) {
 	m.holdOn(i)
 }
 
-// keepOnScreen re-aims the camera at the selected plant after the layout or
-// the plants' order changed.
+// keepOnScreen re-aims the camera at the selected plant, or the plant it is
+// visiting, after the layout or the plants' order changed.
 func (m *Model) keepOnScreen() {
 	if i := m.selected(); i >= 0 {
 		m.holdOn(i)
+		return
+	}
+	for _, v := range m.visits { // or at the plant the camera is visiting
+		if i := m.indexOf(v.repo); v.started && i >= 0 {
+			m.holdOn(i)
+			return
+		}
 	}
 }
 

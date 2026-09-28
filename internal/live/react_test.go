@@ -311,3 +311,27 @@ func TestSelectedRepoLeavingStillVisits(t *testing.T) {
 		t.Errorf("selected %q, visits %+v: with the selection gone the camera should visit", m.sel.name, m.visits)
 	}
 }
+
+func TestResizeDuringAVisitKeepsThePlantInView(t *testing.T) {
+	for _, size := range [][2]int{{60, 24}, {100, 24}, {60, 50}, {35, 50}, {60, 75}} { // a bed is 24 rows
+		now := t0
+		m := ready(clocked(eight(), &now), 80, 24)
+		after := eight()
+		after.Repos[6] = pushedTo(after.Repos[6], 25, t0, "Far away", "")
+		m, _ = step(m, loadedMsg{snap: after})
+		if len(m.visits) != 1 {
+			t.Fatalf("visits %+v", m.visits)
+		}
+		vis := m.visits[0]
+		now = vis.from
+		m, _ = step(m, tickMsg{})
+		now = now.Add(scene.SlideFor)
+		m, _ = step(m, tickMsg{})
+		m, _ = step(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		now = now.Add(scene.SlideFor)
+		m, _ = step(m, tickMsg{})
+		if on := scene.OnScreen(m.sceneView(m.now())); now.Before(vis.until) && !contains(on, 6) {
+			t.Errorf("%dx%d mid-visit: on screen %v, want p6 among them", size[0], size[1], on)
+		}
+	}
+}
