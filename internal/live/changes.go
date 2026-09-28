@@ -135,15 +135,16 @@ func changesOf(b, r Repo) []Change {
 }
 
 // tickerText cleans text for a ticker note. Tabs and newlines become spaces,
-// and control characters and zero-width runes (joiners, combining marks,
-// variation selectors) go, so a Gitmoji or a stray escape code can't shift
-// the line.
+// and control characters, format runes (joiners, tags), enclosing marks and
+// variation selectors go, so a Gitmoji or a stray escape code can't shift
+// the line. Combining marks stay: they take no cell, and scripts such as
+// Devanagari and Thai need them.
 func tickerText(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\t' || r == '\n':
 			return ' '
-		case unicode.IsControl(r), unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf, unicode.Variation_Selector):
+		case unicode.IsControl(r), unicode.In(r, unicode.Me, unicode.Cf, unicode.Variation_Selector):
 			return -1
 		}
 		return r

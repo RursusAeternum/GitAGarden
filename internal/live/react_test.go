@@ -249,3 +249,18 @@ func TestCIComparesWithItsLastSettledState(t *testing.T) {
 		t.Errorf("reactions = %v, want %v", got, want)
 	}
 }
+
+func TestNoteTextKeepsCombiningMarks(t *testing.T) {
+	for _, title := range []string{"नमस्ते दुनिया", "สวัสดีชาวโลก", "café au lait"} {
+		now := t0
+		m := ready(clocked(garden3(), &now), 100, 30)
+		after := garden3()
+		after.Repos[0] = pushedTo(after.Repos[0], 61, t0, title, "")
+		m, _ = step(m, loadedMsg{snap: after})
+		now = now.Add(slowFrame)
+		if !strings.Contains(tickerOf(m), `"`+title+`"`) {
+			t.Errorf("ticker = %q, want %q in it", tickerOf(m), title)
+		}
+		checkSize(t, m.View(), 100, 30)
+	}
+}
