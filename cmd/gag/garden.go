@@ -172,66 +172,6 @@ func onceView(src source, now, at time.Time, sky scene.SkyMode, cols int) (scene
 	return scene.View{Cols: cols, Plots: plots, Now: at, Seed: 1, Sky: sky, StarTotal: stars}, nil
 }
 
-// demoItem is an open PR in the demo garden.
-type demoItem struct {
-	days   int // how long ago it was opened
-	number int
-	title  string
-}
-
-type demoRepo struct {
-	name, lang string
-	events     int
-	idleDays   int
-	finished   bool
-	ci         live.CI
-	prs        []demoItem // open PRs
-	drafts     int
-	newIssues  int
-	rising     bool
-	stars      int
-	commit     string // the last commit's headline
-}
-
-var demo = []demoRepo{
-	{name: "gag-core", lang: "Go", events: 160, ci: live.CIPassing, rising: true, stars: 31,
-		prs:    []demoItem{{2, 41, "Add a detail card"}, {10, 38, "Bump bubbletea to v1.3"}},
-		commit: "Draw the card beside the plant"},
-	{name: "rustyfs", lang: "Rust", events: 90, idleDays: 12, ci: live.CIFailing, stars: 12,
-		commit: "Fix inode refcount on unlink"},
-	{name: "notebook-api", lang: "Python", events: 70, idleDays: 3, ci: live.CIPending, newIssues: 4, stars: 3,
-		commit: "Paginate the notes endpoint"},
-	{name: "old-blog", lang: "Go", events: 120, idleDays: 400, finished: true,
-		commit: "Final post: moving on"},
-	{name: "dotfiles", lang: "Shell", events: 40, idleDays: 35, commit: "Add fish abbreviations"},
-	{name: "tiny-cli", lang: "Rust", events: 12, idleDays: 1, drafts: 1,
-		prs: []demoItem{{1, 7, "Support --json output"}}, commit: "Handle empty input"},
-	{name: "site-v2", lang: "TypeScript", events: 110, idleDays: 70, commit: "Swap the hero image"},
-	{name: "lsystem", lang: "C", events: 60, idleDays: 200, finished: true, stars: 2,
-		commit: "Add a Koch curve example"},
-}
-
-// demoGarden grows the demo repos, with fake histories whose last event
-// lands idleDays before now and a few signals so every one shows.
-func demoGarden(now time.Time) []live.Repo {
-	var out []live.Repo
-	for _, r := range demo {
-		events := garden.FakeHistory(r.name, r.events, now)
-		shift := now.Sub(events[len(events)-1].At) - time.Duration(r.idleDays)*24*time.Hour
-		for i := range events {
-			events[i].At = events[i].At.Add(shift)
-		}
-		lr := live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), events),
-			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising, Stars: r.stars,
-			Detail: demoDetail(r, events, now)}
-		for _, pr := range r.prs {
-			lr.PRs = append(lr.PRs, now.Add(-time.Duration(pr.days)*24*time.Hour))
-		}
-		out = append(out, lr)
-	}
-	return out
-}
-
 // repoFor grows a repo's plant and works out its signals as of now.
 func repoFor(r *github.Repo, now time.Time) live.Repo {
 	lr := live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()),

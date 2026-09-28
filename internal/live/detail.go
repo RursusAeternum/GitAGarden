@@ -15,6 +15,8 @@ type Detail struct {
 	Drafts      int     // open draft PRs
 	OpenIssues  int
 	NewestIssue Entry // the newest open issue; zero when none
+	LastMerge   Entry // the newest merged PR; zero when none
+	LastClosed  Entry // the most recently closed issue; zero when none
 	Release     Entry // the latest release, its tag as Title; zero when none
 }
 
@@ -24,6 +26,7 @@ type Entry struct {
 	Number int
 	Title  string
 	At     time.Time
+	By     string // the AI coding agent behind a commit; "" for people
 }
 
 // DailyCommits counts the commits at times per local calendar day for the
