@@ -33,10 +33,11 @@ type Plot struct {
 }
 
 var (
-	nameColor  = rgb(240, 232, 214)
-	glassLabel = rgb(150, 215, 230)
-	sadLabel   = rgb(200, 120, 90)
-	happyLabel = rgb(150, 220, 130)
+	nameColor     = rgb(240, 232, 214)
+	selectedLabel = rgb(255, 255, 255)
+	glassLabel    = rgb(150, 215, 230)
+	sadLabel      = rgb(200, 120, 90)
+	happyLabel    = rgb(150, 220, 130)
 )
 
 // PerRow is how many plots fit side by side in cols terminal columns.
@@ -50,7 +51,7 @@ func Compose(cols int, plots []Plot, t time.Time, seed int64) *pixel.Canvas {
 
 // drawPlot draws one plot centered on column cx of the bed whose top is
 // pixel row oy.
-func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int) {
+func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int, selected bool) {
 	DrawPot(c, cx, oy+potTop)
 	garden.Paint(c, pl.Plant, cx, oy+plantBaseY, pl.Style)
 	if pl.Finished {
@@ -65,7 +66,11 @@ func drawPlot(c *pixel.Canvas, v View, pl Plot, cx, oy int) {
 		}
 	}
 	labelRow := oy/2 + BedRows - 2
-	label(c, cx, labelRow, pl.Name, nameColor)
+	nameFg := nameColor
+	if selected {
+		nameFg = selectedLabel
+	}
+	label(c, cx, labelRow, pl.Name, nameFg)
 	label(c, cx, labelRow+1, pl.Status, statusColor(pl))
 }
 

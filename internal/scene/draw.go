@@ -19,6 +19,7 @@ type View struct {
 	Sky        SkyMode    // what the night sky shows
 	StarTotal  int        // the garden's GitHub stars, for SkyStars
 	Shooting   []Shooting // shooting stars, drawn while in flight
+	Selected   int        // 1 + the selected plot's index; 0, the zero value, selects none
 }
 
 // Layout is how plots are arranged in a frame.
@@ -49,17 +50,11 @@ func LayoutFor(cols, rows, n int) Layout {
 // cells: beds sit at the bottom, spare height above them is sky, and a
 // window shorter than the beds crops them from the top.
 func Draw(v View) *pixel.Canvas {
-	cols := max(v.Cols, 1)
-	lay := LayoutFor(cols, v.Rows, len(v.Plots))
-	h := lay.Beds * bedPx
-	if v.Rows > 0 {
-		h = v.Rows * 2
-	}
-	c := pixel.New(cols, h)
-	top := h - lay.Beds*bedPx // negative when the top is cropped
+	g := geometryOf(v)
+	c := pixel.New(g.cols, g.h)
 	var hosts []Host
-	for b := 0; b < lay.Beds; b++ {
-		oy := top + b*bedPx
+	for b := 0; b < g.lay.Beds; b++ {
+		oy := g.bedTop(b)
 		skyTop := oy
 		if b == 0 && oy > 0 {
 			skyTop = 0
@@ -80,9 +75,13 @@ func Draw(v View) *pixel.Canvas {
 			drawShootingStars(c, v.Now, v.Shooting, skyTop, oy+groundTop)
 		}
 		DrawGround(c, oy+groundTop, oy+bedPx, v.Seed)
-		for _, s := range slots(lay, b, len(v.Plots), cols, v.Pan) {
+		for _, s := range g.slots(v, b) {
 			pl := v.Plots[s.index]
-			drawPlot(c, v, pl, s.cx, oy)
+			selected := v.Selected == s.index+1
+			if selected {
+				lightGround(c, s.cx, oy+groundTop, oy+bedPx)
+			}
+			drawPlot(c, v, pl, s.cx, oy, selected)
 			if v.Motion && Flowering(pl) {
 				hosts = append(hosts, Host{X: s.cx, Y: oy + plantBaseY - garden.Height/2})
 			}
