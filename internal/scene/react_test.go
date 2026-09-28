@@ -208,3 +208,31 @@ func TestCardCoversReactions(t *testing.T) {
 		}
 	}
 }
+
+func TestShapesStepThroughQueuedReveals(t *testing.T) {
+	pl, first := demoPlots()[0], earlier()
+	middle := garden.Grow("gag-core", garden.Shrub, garden.FakeHistory("gag-core", 40, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	start := at(14, 0)
+	reacts := []Reaction{ // two loads' pushes, the second queued 3 s after the first
+		{Plot: 1, Kind: ReactPush, Start: start, Before: first, Reveals: true},
+		{Plot: 1, Kind: ReactPush, Start: start.Add(3 * time.Second), Before: middle, Reveals: true},
+	}
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	for _, c := range []struct {
+		into          time.Duration
+		plant, before *garden.Plant
+	}{
+		{ms(500), first, nil},        // before the first change
+		{ms(1300), middle, first},    // the first change grows in
+		{ms(2200), middle, nil},      // between the two
+		{ms(3500), middle, nil},      // before the second change
+		{ms(4300), pl.Plant, middle}, // the second change grows in
+		{ms(6000), pl.Plant, nil},    // both done
+	} {
+		v := View{Plots: []Plot{pl}, Now: start.Add(c.into), Reactions: reacts}
+		got := v.shaped(0, pl)
+		if got.Plant != c.plant || got.Style.Before != c.before {
+			t.Errorf("%v in: plant %p (before %p), want %p (before %p)", c.into, got.Plant, got.Style.Before, c.plant, c.before)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"slices"
 	"time"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
@@ -73,12 +74,13 @@ func (r Reaction) ChangeAt() time.Duration {
 	return 0
 }
 
-// shaped is plot i as its reactions show it at v.Now. Until a revealing
-// reaction's change moment, even while that reaction still waits, the plant
-// keeps its old shape; then its new cells grow in over growFor. A storm's
-// steady weather waits for its cloud to roll in, and a clearing storm stays
-// until its reaction starts.
+// shaped is plot i as its reactions show it at v.Now: its shape, and its
+// weather. A storm's steady weather waits for its cloud to roll in, and a
+// clearing storm stays until its reaction starts.
 func (v View) shaped(i int, pl Plot) Plot {
+	if !pl.Finished {
+		pl = v.revealed(i, pl)
+	}
 	for _, r := range v.Reactions {
 		if r.Plot != i+1 {
 			continue
@@ -87,19 +89,43 @@ func (v View) shaped(i int, pl Plot) Plot {
 		if age >= r.Duration() {
 			continue
 		}
-		if r.Reveals && r.Before != nil && !pl.Finished {
-			switch at := r.ChangeAt(); {
-			case age < at:
-				pl.Plant = r.Before
-			case age < at+growFor:
-				pl.Style.Before, pl.Style.Grown = r.Before, float64(age-at)/float64(growFor)
-			}
-		}
 		switch {
 		case r.Kind == ReactStorm && age < r.ChangeAt():
 			pl.Weather = Clear
 		case r.Kind == ReactClear && age < 0:
 			pl.Weather = Storm
+		}
+	}
+	return pl
+}
+
+// revealed is plot i's shape at v.Now. Until a revealing reaction's change
+// moment, even while that reaction still waits, the plant keeps the shape
+// from before it; then the next shape's new cells grow in over growFor. A
+// plant with several changes queued steps through them in order: each
+// change's next shape is the old shape of the one after it, and the last
+// one's is the plant as it is now.
+func (v View) revealed(i int, pl Plot) Plot {
+	var reveals []Reaction
+	for _, r := range v.Reactions {
+		if r.Plot == i+1 && r.Reveals && r.Before != nil && v.Now.Sub(r.Start) < r.Duration() {
+			reveals = append(reveals, r)
+		}
+	}
+	slices.SortStableFunc(reveals, func(a, b Reaction) int { return a.Start.Compare(b.Start) })
+	for k, r := range reveals {
+		next := pl.Plant
+		if k+1 < len(reveals) {
+			next = reveals[k+1].Before
+		}
+		switch age, at := v.Now.Sub(r.Start), r.ChangeAt(); {
+		case age < at:
+			pl.Plant = r.Before
+			return pl
+		case age < at+growFor:
+			pl.Plant = next
+			pl.Style.Before, pl.Style.Grown = r.Before, float64(age-at)/float64(growFor)
+			return pl
 		}
 	}
 	return pl
