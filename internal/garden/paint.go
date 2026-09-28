@@ -14,6 +14,8 @@ type Style struct {
 	Now    time.Time   // the frame's time; ages flowers and buds (zero: all fresh)
 	Buds   []time.Time // when each open PR was opened; up to MaxBuds are drawn
 	Rising bool        // more commits lately than before: recent growth shows as shoots
+	Before *Plant      // an earlier shape of this plant: the cells it lacks grow in
+	Grown  float64     // how far they have come in, 0 to 1; by the stem first
 }
 
 func rgbOf(r, g, b uint8) pixel.RGB { return pixel.RGB{R: r, G: g, B: b} }
@@ -111,7 +113,12 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 			if st.Rising && (cell.Kind == Stem || cell.Kind == Leaf || cell.Kind == Body) && fresh(cell, st.Now) {
 				col = pixel.Lerp(col, shootColor, 0.55)
 			}
-			c.Set(baseX-center+x+dx, baseY-ground+y, col.Scale(0.9+0.2*hash01(p.Name, x, y)))
+			col = col.Scale(0.9 + 0.2*hash01(p.Name, x, y))
+			a := 1.0
+			if st.Before != nil && st.Before.Grid[y][x].Kind != cell.Kind {
+				a = unfurl(st.Grown, x) // a new cell, still coming in
+			}
+			c.Blend(baseX-center+x+dx, baseY-ground+y, col, a)
 		}
 	}
 	for i := 0; i < p.OpenIssues && i < len(p.weedSlots); i++ {
@@ -119,9 +126,13 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 		if p.Grid[ground][s].Kind != Empty {
 			continue
 		}
-		c.Set(baseX-center+s, baseY, weedColor)
+		low, high := 1.0, 1.0
+		if st.Before != nil && i >= st.Before.OpenIssues { // a new weed grows up from the soil
+			low, high = math.Min(1, 2*st.Grown), math.Max(0, 2*st.Grown-1)
+		}
+		c.Blend(baseX-center+s, baseY, weedColor, low)
 		if i%2 == 0 {
-			c.Set(baseX-center+s, baseY-1, weedColor.Scale(1.15))
+			c.Blend(baseX-center+s, baseY-1, weedColor.Scale(1.15), high)
 		}
 	}
 	for i, s := range p.budSpots(min(len(st.Buds), MaxBuds)) {
@@ -131,4 +142,11 @@ func Paint(c *pixel.Canvas, p *Plant, baseX, baseY int, st Style) {
 		}
 		c.Set(baseX-center+s.x+swayAt(st, y), baseY-ground+y, col)
 	}
+}
+
+// unfurl is how far a new cell in column x has come in once the plant's new
+// cells are g of the way in: those by the stem first, the outermost last.
+func unfurl(g float64, x int) float64 {
+	d := math.Abs(float64(x-center)) / center
+	return math.Max(0, math.Min(1, 2*g-d))
 }

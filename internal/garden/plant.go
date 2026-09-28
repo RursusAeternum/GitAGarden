@@ -214,3 +214,47 @@ func (p *Plant) budSpots(n int) []pt {
 	}
 	return out
 }
+
+// Spot is a cell of the plant grid: X from the left, Y from the top.
+type Spot struct{ X, Y int }
+
+// At is where the spot lands on a canvas for a plant painted with its ground
+// row on baseY and centered on column baseX, as Paint places it before sway.
+func (s Spot) At(baseX, baseY int) (int, int) { return baseX - center + s.X, baseY - ground + s.Y }
+
+// NewSpots lists the cells of kind k that p has and before hadn't, top to
+// bottom, left to right.
+func (p *Plant) NewSpots(before *Plant, k CellKind) []Spot {
+	var out []Spot
+	for y := 0; y < Height; y++ {
+		for x := 0; x < Width; x++ {
+			if p.Grid[y][x].Kind == k && before.Grid[y][x].Kind != k {
+				out = append(out, Spot{x, y})
+			}
+		}
+	}
+	return out
+}
+
+// WeedSpot is where the i-th weed grows, and false when that weed isn't
+// drawn: past the last slot, or where the plant itself stands.
+func (p *Plant) WeedSpot(i int) (Spot, bool) {
+	if i < 0 || i >= len(p.weedSlots) {
+		return Spot{}, false
+	}
+	s := p.weedSlots[i]
+	return Spot{s, ground}, p.Grid[ground][s].Kind == Empty
+}
+
+// Top is the grid row of the plant's highest cell, or the ground row when it
+// has none.
+func (p *Plant) Top() int {
+	for y := 0; y < Height; y++ {
+		for x := 0; x < Width; x++ {
+			if p.Grid[y][x].Kind != Empty {
+				return y
+			}
+		}
+	}
+	return ground
+}
