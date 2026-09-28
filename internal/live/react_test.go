@@ -79,7 +79,7 @@ func TestAPlantsReactionsQueue(t *testing.T) {
 	after := garden3()
 	r := pushedTo(after.Repos[0], 63, t0, "Speed up", "")
 	r.Plant = grow("bloom", 63, 5, t0).Plant
-	r.Detail.LastMerge = Entry{Number: 41, Title: "Add a detail card", At: t0}
+	r.Detail.LastMerge = Entry{Number: 41, Title: "Add a detail card", At: t0.Add(-10 * time.Minute)} // merged before the push
 	r.CI, r.Branch = CIFailing, "main"
 	after.Repos[0] = r
 	m, _ = step(m, loadedMsg{snap: after})

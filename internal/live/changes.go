@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
+
+// mergeSlack is how much newer than a merge its own commits can be: GitHub
+// commits a merge within moments of it.
+const mergeSlack = time.Minute
 
 // Change is something that happened to a repo between two online loads,
 // with the ticker note that says so.
@@ -80,7 +85,11 @@ func changesOf(b, r Repo) []Change {
 	}
 	d, bd := r.Detail, b.Detail
 	pushes, merges := r.Plant.Pushes-b.Plant.Pushes, r.Plant.Merges-b.Plant.Merges
-	if d.LastCommit.At.After(bd.LastCommit.At) && pushes > merges { // not when the new commits are the merges' own
+	// Not a push when the new commits are the merges' own: a squash, a merge
+	// commit, or a PR's commits recommitted as it merged. Those are no newer
+	// than the merge.
+	mergesOwn := merges > 0 && !d.LastCommit.At.After(d.LastMerge.At.Add(mergeSlack))
+	if d.LastCommit.At.After(bd.LastCommit.At) && pushes > merges && !mergesOwn {
 		text := "pushed"
 		if title := tickerText(d.LastCommit.Title); title != "" {
 			text = `"` + title + `"`

@@ -119,7 +119,7 @@ func TestChangesComeInOrder(t *testing.T) {
 	a := regrown(baseRepo(), 14, 2) // four commits, one of them a merge's
 	a.CI = CIFailing
 	a.Detail.LastCommit = Entry{Title: "Speed up", At: t0}
-	a.Detail.LastMerge = Entry{Number: 41, Title: "Add a detail card", At: t0}
+	a.Detail.LastMerge = Entry{Number: 41, Title: "Add a detail card", At: t0.Add(-10 * time.Minute)} // merged before the push
 	other := grow("zz", 5, 0, t0.Add(-time.Hour))
 	red := other
 	red.CI = CIFailing
@@ -146,5 +146,28 @@ func TestNoteTextIsCleaned(t *testing.T) {
 	a.Detail.LastCommit = Entry{Title: "♻️ Tidy\tup\x1b[31m", At: t0}
 	if got := ChangesBetween([]Repo{baseRepo()}, []Repo{a}); len(got) != 1 || got[0].Text != `gag-core: "♻ Tidy up[31m"` {
 		t.Errorf("cleaned note: %+v", got)
+	}
+}
+
+func TestAMergesOwnCommitsAreNotAPush(t *testing.T) {
+	merged := Entry{Number: 41, Title: "Add a detail card", At: t0}
+	for _, c := range []struct {
+		name   string
+		pushes int
+		last   Entry
+	}{
+		{"a merge commit", 13, Entry{Title: "Merge pull request #41 from kaine/card", At: t0}}, // two PR commits and the merge's own
+		{"a rebase merge", 12, Entry{Title: "Draw the card", At: t0.Add(2 * time.Second)}},     // the PR's commits, recommitted as it merges
+	} {
+		after := regrown(baseRepo(), c.pushes, 2)
+		after.Detail.LastCommit, after.Detail.LastMerge = c.last, merged
+		if got := ChangesBetween([]Repo{baseRepo()}, []Repo{after}); len(got) != 1 || got[0].Kind != scene.ReactMerge {
+			t.Errorf("%s: %+v, want just the merge", c.name, got)
+		}
+	}
+	later := regrown(baseRepo(), 13, 2) // a commit pushed after the merge
+	later.Detail.LastCommit, later.Detail.LastMerge = Entry{Title: "Tidy up", At: t0.Add(10 * time.Minute)}, merged
+	if got := ChangesBetween([]Repo{baseRepo()}, []Repo{later}); len(got) != 2 || got[0].Kind != scene.ReactPush {
+		t.Errorf("a push after a merge: %+v, want the push and the merge", got)
 	}
 }
