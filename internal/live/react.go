@@ -89,14 +89,17 @@ func (m *Model) schedule(changes []Change) {
 	slices.SortStableFunc(later, func(a, b []Change) int { // in garden order
 		return m.indexOf(a[0].Repo) - m.indexOf(b[0].Repo)
 	})
+	if last := len(m.visits) - 1; last >= 0 { // the plant the visits end on keeps that visit
+		tail := m.visits[last].repo
+		if k := slices.IndexFunc(later, func(g []Change) bool { return g[0].Repo == tail }); k >= 0 {
+			end := m.queue(later[k], laterOf(base, m.nextStart(tail)))
+			m.visits[last].until = laterOf(m.visits[last].until, end.Add(visitLinger))
+			nextVisit = laterOf(nextVisit, m.visits[last].until)
+			later = slices.Delete(later, k, k+1)
+		}
+	}
 	for _, group := range later {
 		repo := group[0].Repo
-		if last := len(m.visits) - 1; last >= 0 && m.visits[last].repo == repo {
-			end := m.queue(group, laterOf(base, m.nextStart(repo)))
-			m.visits[last].until = laterOf(m.visits[last].until, end.Add(visitLinger))
-			nextVisit = m.visits[last].until
-			continue
-		}
 		from := nextVisit
 		end := m.queue(group, laterOf(from.Add(scene.SlideFor), m.nextStart(repo)))
 		nextVisit = end.Add(visitLinger)

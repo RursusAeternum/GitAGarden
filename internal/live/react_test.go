@@ -409,3 +409,25 @@ func TestAPlantKeepsOneVisit(t *testing.T) {
 		t.Errorf("the visit ends at %v, before the second push is done at %v", m.visits[0].until, end)
 	}
 }
+
+func TestTheLastVisitsPlantKeepsItsVisit(t *testing.T) {
+	now := t0
+	m := ready(clocked(eight(), &now), 80, 24)
+	first := eight()
+	first.Repos[6] = pushedTo(first.Repos[6], 25, t0, "far away", "")
+	m, _ = step(m, loadedMsg{snap: first})
+	now = now.Add(time.Second)
+	second := first
+	second.Repos = append([]Repo(nil), first.Repos...)
+	second.Repos[0] = pushedTo(second.Repos[0], 25, now, "earlier in the garden", "")
+	second.Repos[6] = pushedTo(first.Repos[6], 27, now, "further", "")
+	m, _ = step(m, loadedMsg{snap: second})
+	if want := []string{"p6", "p0"}; fmt.Sprint(visitNames(m)) != fmt.Sprint(want) {
+		t.Fatalf("visits = %v, want %v: p6's visit should stay longer, not come round again", visitNames(m), want)
+	}
+	for _, r := range m.reacts {
+		if r.repo == "p6" && m.visits[0].until.Before(r.anim.Start.Add(r.anim.Duration()).Add(visitLinger)) {
+			t.Errorf("p6's visit ends at %v, before its push at %v is done", m.visits[0].until, r.anim.Start)
+		}
+	}
+}
