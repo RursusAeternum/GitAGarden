@@ -64,6 +64,17 @@ Each **online** refresh is compared with the previous one, repo by repo:
   - After the last visit, automatic panning resumes from there.
   - With a plant selected, the camera never moves. The reactions play
     unseen, and their notes still appear.
+- **A refresh while reactions are still queued** (v0.7.1):
+  - The first visit waits until every reaction already queued has ended, so
+    the camera never leaves a plant mid-reaction.
+  - While the camera still has visits to make, the refresh's changed plants
+    join the end of them in garden order, even plants on screen now: by
+    their turn the camera will have moved.
+  - A change to the plant the visits end on extends that last visit rather
+    than adding another.
+  - A plant's reactions stay at least 3 s apart across refreshes too.
+  - A resize, `t` or `?` during a visit re-aims the camera at the visited
+    plant.
 - **Notes:**
   - A change's note appears when its reaction starts and lasts a minute. It
     sits ahead of the attention items, and a new note restarts the ticker's
