@@ -51,17 +51,22 @@ func drawWatering(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy, top in
 	}
 }
 
-// dropBlues are the colours a drop can take. The sky passes through blues
-// at dawn and dusk, so each frame uses whichever stands out most.
-var dropBlues = []pixel.RGB{rainColor, rgb(200, 230, 255), rgb(30, 50, 110)}
+// Drops are steel blue while that stands out from the sky. The sky passes
+// through blues at dawn and dusk, and then the drops take whichever of
+// dropFallbacks stands out most.
+var dropFallbacks = []pixel.RGB{rgb(200, 230, 255), rgb(30, 50, 110)} // ice blue, navy
 
-// dropFor is the drop colour that stands out most from the sky at now.
+// dropFor is the drop colour for the sky at now.
 func dropFor(now time.Time) pixel.RGB {
 	top, bottom := SkyAt(now)
-	best, far := dropBlues[0], -1
-	for _, c := range dropBlues {
-		if d := min(sqDist(c, top), sqDist(c, bottom)); d > far {
-			best, far = c, d
+	far := func(c pixel.RGB) int { return min(sqDist(c, top), sqDist(c, bottom)) }
+	if far(rainColor) >= 60*60 {
+		return rainColor
+	}
+	best := dropFallbacks[0]
+	for _, c := range dropFallbacks[1:] {
+		if far(c) > far(best) {
+			best = c
 		}
 	}
 	return best
@@ -108,13 +113,10 @@ func drawDrone(c *pixel.Canvas, x, y int, secs float64) {
 
 // drawWeedIn draws a new issue: its weeds grow up from the soil with a puff
 // of dirt, next to the weeds shown already. shown is the plant as drawn this
-// frame, which doesn't count them yet; now is the plant after the change.
-func drawWeedIn(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown, now *garden.Plant) {
-	if r.Before == nil {
-		return
-	}
+// frame, which doesn't count them yet.
+func drawWeedIn(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown *garden.Plant) {
 	s, g := age.Seconds(), min(1, float64(age)/float64(growFor))
-	for k := 0; k < weedsGained(r.Before, now); k++ {
+	for k := 0; k < r.Weeds; k++ {
 		i := shown.OpenIssues + k
 		sp, ok := shown.WeedSpot(i)
 		if !ok {
@@ -138,14 +140,11 @@ func drawWeedIn(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, show
 
 // drawWeedOut draws a closed issue: its weeds, the last ones shown until it
 // started, lift out of the soil, rise and fade. shown is the plant as drawn
-// this frame, which no longer counts them; now is the plant after the change.
-func drawWeedOut(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown, now *garden.Plant) {
-	if r.Before == nil {
-		return
-	}
+// this frame, which no longer counts them.
+func drawWeedOut(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, shown *garden.Plant) {
 	f := age.Seconds() / 1.5
 	lift, a := int(math.Round(f*8)), 1-f
-	for k := 0; k < weedsLost(r.Before, now); k++ {
+	for k := 0; k < r.Weeds; k++ {
 		i := shown.OpenIssues + k
 		sp, ok := shown.WeedSpot(i)
 		if !ok {

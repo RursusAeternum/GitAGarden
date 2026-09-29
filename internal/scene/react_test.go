@@ -24,7 +24,7 @@ func frameText(v View) string { return Draw(v).Encode(pixel.TrueColor) }
 
 func TestReactionsPlayThenLeave(t *testing.T) {
 	plain := frameText(View{Cols: 3 * BedCols, Plots: demoPlots(), Now: at(14, 0), Seed: 1})
-	for _, r := range []Reaction{{Kind: ReactPush}, {Kind: ReactPush, Drone: true}, {Kind: ReactWeedIn}, {Kind: ReactWeedOut}} {
+	for _, r := range []Reaction{{Kind: ReactPush}, {Kind: ReactPush, Drone: true}, {Kind: ReactWeedIn, Weeds: 1}, {Kind: ReactWeedOut, Weeds: 1}} {
 		r.Before, r.Reveals, r.Seed = earlier(), true, 3
 		if frameText(reacting(r, r.Duration()/2)) == plain {
 			t.Errorf("kind %v (drone %v): nothing drawn halfway through", r.Kind, r.Drone)
@@ -116,6 +116,14 @@ func TestReactionColoursStandOut(t *testing.T) {
 	}
 }
 
+func TestDropsAreSteelBlueWhileTheyStandOut(t *testing.T) {
+	for _, now := range []time.Time{at(12, 0), at(23, 30)} {
+		if got := dropFor(now); got != rainColor {
+			t.Errorf("at %s the drops are %v; steel blue %v stands out then", now.Format("15:04"), got, rainColor)
+		}
+	}
+}
+
 func TestDropsStandOutAllDay(t *testing.T) {
 	for m := 0; m < 24*60; m += 10 {
 		now := at(0, 0).Add(time.Duration(m) * time.Minute)
@@ -181,7 +189,7 @@ func TestReactionsStayInTheirSlot(t *testing.T) {
 	for gi, g := range gardens {
 		for _, c := range cases {
 			for _, age := range c.ages {
-				r := Reaction{Kind: c.kind, Before: g.before, Reveals: true, Seed: 9}
+				r := Reaction{Kind: c.kind, Before: g.before, Reveals: true, Seed: 9, Weeds: 1}
 				if n := strayPixels(g.plots, r, age); n > 0 {
 					t.Errorf("garden %d, kind %v at %v: %d pixels outside its slot", gi, c.kind, age, n)
 				}
@@ -267,17 +275,34 @@ func TestWeedsFollowTheirReactions(t *testing.T) {
 	}{
 		{"a push, then a closed issue", weedy(3, 1), []Reaction{
 			{Plot: 1, Kind: ReactPush, Start: start, Before: three, Reveals: true},
-			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(3 * time.Second), Before: three},
+			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(3 * time.Second), Before: three, Weeds: 1},
 		}, []at{{ms(500), 3}, {ms(1500), 3}, {ms(3200), 2}}},
 		{"one closed, one opened", weedy(4, 1), []Reaction{
-			{Plot: 1, Kind: ReactWeedOut, Start: start, Before: three, Reveals: true},
-			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(3 * time.Second), Before: three},
+			{Plot: 1, Kind: ReactWeedOut, Start: start, Before: three, Reveals: true, Weeds: 1},
+			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(3 * time.Second), Before: three, Weeds: 1},
 		}, []at{{ms(-1000), 3}, {ms(500), 2}, {ms(3500), 2}, {ms(4500), 3}}},
+		{"one closed, two opened", weedy(3, 1), []Reaction{
+			{Plot: 1, Kind: ReactPush, Start: start, Before: one, Reveals: true},
+			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(3 * time.Second), Before: one, Weeds: 1},
+			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(6 * time.Second), Before: one, Weeds: 2},
+		}, []at{{ms(500), 1}, {ms(1500), 1}, {ms(3200), 0}, {ms(6500), 0}, {ms(7200), 2}}},
+		{"two closed, one opened", weedy(4, 2), []Reaction{
+			{Plot: 1, Kind: ReactWeedOut, Start: start, Before: three, Reveals: true, Weeds: 2},
+			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(3 * time.Second), Before: three, Weeds: 1},
+		}, []at{{ms(-500), 3}, {ms(500), 1}, {ms(3500), 1}, {ms(4200), 2}}},
+		{"two refreshes, a new issue each", weedy(3, 0), []Reaction{
+			{Plot: 1, Kind: ReactWeedIn, Start: start, Before: one, Reveals: true, Weeds: 1},
+			{Plot: 1, Kind: ReactWeedIn, Start: start.Add(3 * time.Second), Before: weedy(2, 0), Reveals: true, Weeds: 1},
+		}, []at{{ms(-500), 1}, {ms(500), 1}, {ms(1200), 2}, {ms(3500), 2}, {ms(4200), 3}}},
+		{"two refreshes, a closed issue each", weedy(3, 2), []Reaction{
+			{Plot: 1, Kind: ReactWeedOut, Start: start, Before: three, Reveals: true, Weeds: 1},
+			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(3 * time.Second), Before: weedy(3, 1), Reveals: true, Weeds: 1},
+		}, []at{{ms(-500), 3}, {ms(500), 2}, {ms(3500), 1}}},
 		{"a closed issue on a plant without weeds", weedy(0, 0), []Reaction{
 			{Plot: 1, Kind: ReactWeedOut, Start: start.Add(time.Second), Before: weedy(0, 0), Reveals: true},
 		}, []at{{ms(500), 0}, {ms(1500), 0}}},
 		{"a burst of new issues", weedy(4, 0), []Reaction{
-			{Plot: 1, Kind: ReactWeedIn, Start: start, Before: one, Reveals: true},
+			{Plot: 1, Kind: ReactWeedIn, Start: start, Before: one, Reveals: true, Weeds: 3},
 		}, []at{{ms(-500), 1}, {ms(500), 1}, {ms(1200), 4}}},
 	} {
 		pl := plot(c.now)
@@ -306,7 +331,7 @@ func TestABurstOfWeedsComesUpTogether(t *testing.T) {
 		}
 	}
 	v.Now = start.Add(900 * time.Millisecond)
-	v.Reactions = []Reaction{{Plot: 1, Kind: ReactWeedIn, Start: start, Before: weedy(1, 0), Reveals: true}}
+	v.Reactions = []Reaction{{Plot: 1, Kind: ReactWeedIn, Start: start, Before: weedy(1, 0), Reveals: true, Weeds: 3}}
 	growing := Draw(v)
 	for i := 1; i < 4; i++ {
 		if !weedAt(growing, i) {

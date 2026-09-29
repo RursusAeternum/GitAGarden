@@ -218,7 +218,7 @@ func BenchmarkLiveFrameWithReactions(b *testing.B) {
 	m := ready(newModel(snap, nil, t0), 240, 65)
 	for i, r := range m.repos {
 		m.reacts = append(m.reacts, reaction{repo: r.Name, anim: scene.Reaction{Kind: scene.ReactKind(i % 7),
-			Start: t0.Add(-time.Second), Before: grow(r.Name, 5, 0, t0).Plant, Reveals: true, Drone: i%2 == 0, Seed: int64(i)}})
+			Start: t0.Add(-time.Second), Before: grow(r.Name, 5, 0, t0).Plant, Reveals: true, Drone: i%2 == 0, Weeds: 1, Seed: int64(i)}})
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

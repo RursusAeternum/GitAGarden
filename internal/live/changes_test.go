@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/scene"
 )
 
@@ -179,5 +180,49 @@ func TestAClosedIssuePlaysBeforeANewOne(t *testing.T) {
 	got := ChangesBetween([]Repo{baseRepo()}, []Repo{after})
 	if len(got) != 2 || got[0].Kind != scene.ReactWeedOut || got[1].Kind != scene.ReactWeedIn {
 		t.Errorf("changes: %+v, want the closed issue's weed pulled before the new one comes up", got)
+	}
+}
+
+// withIssues is r with its plant regrown to have open issues open.
+func withIssues(r Repo, open int) Repo {
+	ev := []garden.Event{{Kind: garden.Push, At: t0}}
+	for i := 0; i < open; i++ {
+		ev = append(ev, garden.Event{Kind: garden.IssueOpened, At: t0})
+	}
+	r.Plant = garden.Grow(r.Name, garden.Shrub, ev)
+	return r
+}
+
+func TestWeedCountsSplitTheChange(t *testing.T) {
+	for _, c := range []struct {
+		before, after  int
+		closed, opened bool
+		pulled, grown  int
+	}{
+		{1, 2, true, true, 1, 2},  // one closed, two opened
+		{3, 2, true, true, 2, 1},  // two closed, one opened
+		{3, 3, true, true, 1, 1},  // one of each
+		{1, 3, false, true, 0, 2}, // two opened
+		{3, 1, true, false, 2, 0}, // two closed
+	} {
+		before, after := withIssues(baseRepo(), c.before), withIssues(baseRepo(), c.after)
+		if c.closed {
+			after.Detail.LastClosed = Entry{Number: 30, Title: "Old bug", At: t0}
+		}
+		if c.opened {
+			after.Detail.NewestIssue = Entry{Number: 31, Title: "Crash on empty repo", At: t0}
+		}
+		pulled, grown := 0, 0
+		for _, ch := range ChangesBetween([]Repo{before}, []Repo{after}) {
+			switch ch.Kind {
+			case scene.ReactWeedOut:
+				pulled = ch.Weeds
+			case scene.ReactWeedIn:
+				grown = ch.Weeds
+			}
+		}
+		if pulled != c.pulled || grown != c.grown {
+			t.Errorf("%d weeds to %d: pulls %d and grows %d, want %d and %d", c.before, c.after, pulled, grown, c.pulled, c.grown)
+		}
 	}
 }

@@ -115,7 +115,7 @@ func (m *Model) queue(group []Change, start time.Time) time.Time {
 	t, end := start, start
 	for k, ch := range group {
 		r := scene.Reaction{Kind: ch.Kind, Start: t, Before: ch.Before, Reveals: k == 0, Drone: ch.Agent != "",
-			Seed: t.UnixMilli() + int64(k)}
+			Weeds: ch.Weeds, Seed: t.UnixMilli() + int64(k)}
 		m.reacts = append(m.reacts, reaction{repo: ch.Repo, anim: r})
 		m.addChangeNote(ch.Icon, ch.Text, t.Add(-m.cfg.Ahead))
 		end = t.Add(r.Duration())

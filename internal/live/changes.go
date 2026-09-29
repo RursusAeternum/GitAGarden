@@ -24,6 +24,7 @@ type Change struct {
 	Text   string        // and its text
 	Before *garden.Plant // the plant before the change
 	Agent  string        // the AI agent behind a push; "" for people
+	Weeds  int           // how many weeds a new or closed issue grows or pulls
 }
 
 // ChangesBetween lists what happened from before to after: repos in after's
@@ -117,11 +118,16 @@ func changesOf(b, r Repo) []Change {
 	}
 	// A closed issue before a new one: its weed is pulled first, so a new
 	// weed can come up where it stood.
-	if d.LastClosed.Number != 0 && d.LastClosed.At.After(bd.LastClosed.At) {
+	closed := d.LastClosed.Number != 0 && d.LastClosed.At.After(bd.LastClosed.At)
+	opened := d.NewestIssue.Number != 0 && d.NewestIssue.At.After(bd.NewestIssue.At)
+	pulled, grown := weedCounts(b.Plant.OpenIssues, r.Plant.OpenIssues, closed, opened)
+	if closed {
 		add(scene.ReactWeedOut, "✅", fmt.Sprintf("closed #%d %s", d.LastClosed.Number, tickerText(d.LastClosed.Title)), "")
+		out[len(out)-1].Weeds = pulled
 	}
-	if d.NewestIssue.Number != 0 && d.NewestIssue.At.After(bd.NewestIssue.At) {
+	if opened {
 		add(scene.ReactWeedIn, "🐛", fmt.Sprintf("#%d %s", d.NewestIssue.Number, tickerText(d.NewestIssue.Title)), "")
+		out[len(out)-1].Weeds = grown
 	}
 	switch {
 	case r.CI == CIFailing && b.CI != CIFailing:
@@ -134,6 +140,22 @@ func changesOf(b, r Repo) []Change {
 		add(scene.ReactClear, "🌈", "CI passing again", "")
 	}
 	return out
+}
+
+// weedCounts splits a change in open issues, before to after, into the weeds
+// the closed issues pull and the new ones grow. Each reaction moves at least
+// one weed, when there is one to move; with both, they add up to the change.
+func weedCounts(before, after int, closed, opened bool) (pulled, grown int) {
+	switch {
+	case closed && opened:
+		pulled = min(before, max(1, before-after+1))
+		grown = after - before + pulled
+	case closed:
+		pulled = min(before, max(1, before-after))
+	case opened:
+		grown = max(1, after-before)
+	}
+	return pulled, grown
 }
 
 // tickerText cleans text for a ticker note. Tabs and newlines become spaces,
