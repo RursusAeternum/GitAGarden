@@ -109,23 +109,43 @@ refresh = 2m
 # repos = owner/a, owner/b
 # user = someone
 # decay = 30
+# history = full     # fetch whole histories (default: recent)
 ```
 
 With `sky = stars` the night sky has one star per GitHub star across the
 repos in your garden. Whatever the sky, a shooting star crosses it when one
 of your repos gets a new star while GAG is running, and the ticker says which.
 
+`history` sets how much of each repo GAG downloads.
+- `recent`, the default, fetches GitHub's totals plus the last 90 days in
+  detail, so even big accounts load quickly.
+- `full` fetches every commit, PR, issue and release, as before v0.8.
+
+Plants look the same either way. `gag replay -repo` always fetches the
+whole history.
+
 ## How plants grow
 
-`plant = Grow(repo name, species, events)`. The name seeds the RNG, and the
-events are replayed in order, so the same repo always grows the same plant.
-Nothing is stored between runs.
+`plant = GrowAt(repo name, species, totals, events, time)`. A plant grows
+in two layers, both seeded by its name, so the same repo always grows the
+same plant. Nothing is stored between runs.
+
+- **Its skeleton** grows from the repo's totals, so a long-lived project is
+  a big plant:
+  - the stems, trunk and arms
+  - the rosette's base and stalk
+
+  It gets bigger with the log of all the repo's commits, reaching full size
+  at about 500. It never rearranges itself as more commits arrive.
+- **Its canopy** grows from recent activity, inside the species' silhouette,
+  with air between the leaves. Even a huge repo stays a plant, not a block.
 
 | Signal | In the garden |
 |---|---|
-| push | a leaf, a stem segment, or a spine; once full, leaves get lusher |
-| merged PR | a flower, which goes to seed 30 days later |
-| release | fruit |
+| all commits | the plant's size and structure |
+| pushes in the last 90 days | leaves, up to half the plant's silhouette; a third always stays in leaf |
+| merged PR in the last 30 days | a flower, which goes to seed and drops after 90 days |
+| release in the past year | fruit, up to 4 |
 | open PR | a pink bud (up to 5); after a week of waiting it droops and fades |
 | CI on the default branch | running: a small grey cloud · failing: a storm cloud with rain |
 | more commits in the last 14 days than the 14 before | bright new shoots |

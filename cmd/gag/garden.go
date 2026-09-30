@@ -52,7 +52,8 @@ func runGarden(args []string) error {
 		opts.refresh = demoRefresh // the live demo acts out a change on every load
 	}
 
-	src := source{names: opts.repos, owner: opts.user, limit: opts.limit, ttl: *ttl, demo: *demoFlag, decay: opts.decay, state: &sourceState{}}
+	src := source{names: opts.repos, owner: opts.user, limit: opts.limit, ttl: *ttl, demo: *demoFlag, decay: opts.decay,
+		history: opts.history, ahead: ahead, state: &sourceState{}}
 	if *once || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return printOnce(src, ahead, *simulate, opts.sky)
 	}
@@ -78,6 +79,9 @@ type source struct {
 	demo  bool
 	decay float64
 	state *sourceState // shared across a live session's loads; nil for one-shot use
+
+	history github.HistoryMode // how much history to fetch
+	ahead   time.Duration      // -simulate: plants grow as of this far ahead
 }
 
 // sourceState remembers what a live session has already shown.
@@ -124,7 +128,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 			progress(live.Progress{Done: done, Total: total, Current: current})
 		}
 	}
-	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, nil, report)
+	repos, offline, err := loadRepos(ctx, s.names, s.owner, s.limit, ttl, s.history, nil, report)
 	if errors.Is(err, github.ErrNoToken) && (s.state == nil || !s.state.real) {
 		return live.Snapshot{Repos: s.state.fallback(now), FetchedAt: now, Note: "demo · no GitHub token: run gh auth login", Demo: true}, nil
 	}
@@ -137,7 +141,7 @@ func (s source) snapshot(ctx context.Context, progress func(live.Progress)) (liv
 	snap := live.Snapshot{Offline: offline, FetchedAt: now}
 	weekAgo := now.Add(-7 * 24 * time.Hour)
 	for _, r := range repos {
-		snap.Repos = append(snap.Repos, repoFor(r, now))
+		snap.Repos = append(snap.Repos, repoFor(r, now, now.Add(s.ahead)))
 		if !r.FetchedAt.IsZero() && r.FetchedAt.Before(snap.FetchedAt) {
 			snap.FetchedAt = r.FetchedAt
 		}
@@ -181,7 +185,7 @@ func onceView(src source, now, at time.Time, sky scene.SkyMode, cols int) (scene
 		if term.IsTerminal(int(os.Stderr.Fd())) {
 			log, progress = nil, stderrProgress(os.Stderr) // a bar instead of "fetching …" lines
 		}
-		repos, offline, err := loadRepos(context.Background(), src.names, src.owner, src.limit, src.ttl, log, progress)
+		repos, offline, err := loadRepos(context.Background(), src.names, src.owner, src.limit, src.ttl, src.history, log, progress)
 		if err != nil {
 			return scene.View{}, err
 		}
@@ -189,16 +193,17 @@ func onceView(src source, now, at time.Time, sky scene.SkyMode, cols int) (scene
 			logf("GitHub unreachable or partly stale; showing cached data")
 		}
 		for _, r := range repos {
-			plots = append(plots, live.Plot(repoFor(r, now), at, src.decay))
+			plots = append(plots, live.Plot(repoFor(r, now, at), at, src.decay))
 			stars += r.Stars
 		}
 	}
 	return scene.View{Cols: cols, Plots: plots, Now: at, Seed: 1, Sky: sky, StarTotal: stars}, nil
 }
 
-// repoFor grows a repo's plant and works out its signals as of now.
-func repoFor(r *github.Repo, now time.Time) live.Repo {
-	lr := live.Repo{Name: r.Name(), Plant: garden.Grow(r.Name(), r.Species(), r.Events()),
+// repoFor works out a repo's signals as of now, and grows its plant as of
+// at: now, or later under -simulate.
+func repoFor(r *github.Repo, now, at time.Time) live.Repo {
+	lr := live.Repo{Name: r.Name(), Plant: garden.GrowAt(r.Name(), r.Species(), r.GardenTotals(), r.Events(), at),
 		Finished: r.Finished(), Branch: r.Branch, CI: ciFor(r.CI), Stars: r.Stars, Detail: detailFor(r, now)}
 	for _, pr := range r.OpenPRs {
 		if !pr.Draft { // drafts aren't waiting on anyone
@@ -247,14 +252,15 @@ type settings struct {
 	user    string
 	refresh time.Duration
 	decay   float64
+	history github.HistoryMode // set only in the file
 }
 
 // merge takes each option from its flag when the flag was given on the
 // command line, and from the config file (which falls back to the defaults)
-// otherwise. The sky is set only in the file.
+// otherwise. The sky and history are set only in the file.
 func merge(file config.Config, set map[string]bool, flags settings) settings {
 	s := settings{sky: skyMode(file.Sky), limit: file.Limit, repos: file.Repos, user: file.User,
-		refresh: file.Refresh, decay: file.Decay}
+		refresh: file.Refresh, decay: file.Decay, history: historyMode(file.History)}
 	if set["limit"] {
 		s.limit = flags.limit
 	}
@@ -274,6 +280,14 @@ func merge(file config.Config, set map[string]bool, flags settings) settings {
 		s.repos = nil // -user asks for that garden, not the file's repo list
 	}
 	return s
+}
+
+// historyMode is the config file's history setting as a fetch mode.
+func historyMode(s string) github.HistoryMode {
+	if s == "full" {
+		return github.FullHistory
+	}
+	return github.RecentHistory
 }
 
 func skyMode(s string) scene.SkyMode {

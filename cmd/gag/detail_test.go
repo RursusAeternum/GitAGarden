@@ -40,7 +40,7 @@ func TestRepoForFillsTheDetail(t *testing.T) {
 		LastClosed:  live.Entry{Number: 32, Title: "Fixed already", At: ago(1)},
 		Release:     live.Entry{Title: "v0.5.0", At: ago(1)},
 	}
-	if got := repoFor(r, now).Detail; !reflect.DeepEqual(got, want) {
+	if got := repoFor(r, now, now).Detail; !reflect.DeepEqual(got, want) {
 		t.Errorf("detail =\n%+v\nwant\n%+v", got, want)
 	}
 }

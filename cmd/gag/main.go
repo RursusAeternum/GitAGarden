@@ -31,11 +31,12 @@ var version = "dev"
 func logf(s string) { fmt.Fprintln(os.Stderr, "gag:", s) }
 
 // loadRepos returns synced repos: the named ones, or the limit most recently
-// pushed by owner (your own repos when owner is empty). If GitHub is
-// unreachable it falls back to the local cache and reports offline. log gets
-// progress lines ("fetching owner/repo"); nil discards them. progress, if not
-// nil, hears (0, 0, "") while repos are listed, then Sync's per-repo progress.
-func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration, log func(string), progress func(done, total int, current string)) ([]*github.Repo, bool, error) {
+// pushed by owner (your own repos when owner is empty), with as much history
+// as mode fetches. If GitHub is unreachable it falls back to the local cache
+// and reports offline. log gets progress lines ("fetching owner/repo"); nil
+// discards them. progress, if not nil, hears (0, 0, "") while repos are
+// listed, then Sync's per-repo progress.
+func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl time.Duration, mode github.HistoryMode, log func(string), progress func(done, total int, current string)) ([]*github.Repo, bool, error) {
 	store, err := github.OpenStore()
 	if err != nil {
 		return nil, false, err
@@ -44,6 +45,7 @@ func loadRepos(ctx context.Context, names []string, owner string, limit int, ttl
 	if err != nil {
 		return nil, false, err
 	}
+	c.History = mode
 	if progress != nil {
 		progress(0, 0, "") // listing repos; the total isn't known yet
 	}
@@ -131,6 +133,10 @@ func parseSpecies(s string) (garden.Species, error) {
 	return "", fmt.Errorf("unknown species %q", s)
 }
 
+// replayHistory is what replay fetches: a repo's whole life, whatever the
+// history setting.
+const replayHistory = github.FullHistory
+
 func runReplay(args []string) error {
 	fs := flag.NewFlagSet("replay", flag.ExitOnError)
 	repo := fs.String("repo", "", "owner/name of a GitHub repo to replay (default: a fake history)")
@@ -152,7 +158,7 @@ func runReplay(args []string) error {
 		Sky: skyMode(loadConfig().Sky)}
 
 	if *repo != "" {
-		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, logf, nil)
+		repos, _, err := loadRepos(context.Background(), []string{*repo}, "", 1, *ttl, replayHistory, logf, nil)
 		if err != nil {
 			return err
 		}

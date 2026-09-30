@@ -127,7 +127,7 @@ func (w *demoWorld) garden(now time.Time) []live.Repo {
 	var out []live.Repo
 	for _, s := range w.repos {
 		r := s.demoRepo
-		lr := live.Repo{Name: r.name, Plant: garden.Grow(r.name, garden.SpeciesFor(r.lang), s.events),
+		lr := live.Repo{Name: r.name, Plant: garden.GrowAt(r.name, garden.SpeciesFor(r.lang), garden.Totals{}, s.events, now),
 			Finished: r.finished, Branch: "main", CI: r.ci, NewIssues: r.newIssues, Rising: r.rising, Stars: r.stars,
 			Detail: demoDetail(r, s.events, now)}
 		for _, pr := range r.prs {

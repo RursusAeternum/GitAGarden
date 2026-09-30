@@ -109,7 +109,7 @@ func TestRepoForComputesSignals(t *testing.T) {
 			{Number: 3, CreatedAt: day(3)}, {Number: 4, CreatedAt: day(20)}},
 		Commits: []github.Commit{{At: day(1)}, {At: day(2)}, {At: day(3)}, {At: day(20)}},
 	}
-	lr := repoFor(r, now)
+	lr := repoFor(r, now, now)
 	if lr.Name != "x" || lr.CI != live.CIFailing || lr.Branch != "main" {
 		t.Errorf("name %q, ci %v, branch %q", lr.Name, lr.CI, lr.Branch)
 	}
@@ -160,8 +160,8 @@ func TestUserFlagBeatsTheFilesRepoList(t *testing.T) {
 }
 
 func TestRepoForCarriesStars(t *testing.T) {
-	if lr := repoFor(&github.Repo{NameWithOwner: "me/x", Stars: 42}, time.Now()); lr.Stars != 42 {
-		t.Errorf("stars = %d, want 42", lr.Stars)
+	if now := time.Now(); repoFor(&github.Repo{NameWithOwner: "me/x", Stars: 42}, now, now).Stars != 42 {
+		t.Error("the stars should reach the plant")
 	}
 }
 

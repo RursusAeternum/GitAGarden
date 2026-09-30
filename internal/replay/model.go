@@ -179,7 +179,7 @@ func bar(frac float64, width int) string {
 
 func (m Model) View() string {
 	events := m.cfg.Events[:m.applied]
-	p := garden.Grow(m.cfg.Name, m.cfg.Species, events)
+	p := garden.GrowAt(m.cfg.Name, m.cfg.Species, garden.Totals{}, events, m.clock)
 	health := garden.Health(p, m.clock, m.cfg.DecayDays)
 	if m.cfg.Finished {
 		health = 1

@@ -44,6 +44,9 @@ func detailFor(r *github.Repo, now time.Time) live.Detail {
 			d.NewestIssue = live.Entry{Number: is.Number, Title: is.Title, At: is.CreatedAt}
 		}
 	}
+	if r.Totals != nil && r.Totals.OpenIssues > d.OpenIssues { // recent history lists only the newest open issues
+		d.OpenIssues = r.Totals.OpenIssues
+	}
 	for _, rel := range r.Releases {
 		if rel.CreatedAt.After(d.Release.At) {
 			d.Release = live.Entry{Title: rel.Tag, At: rel.CreatedAt}
