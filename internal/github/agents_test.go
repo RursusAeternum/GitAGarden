@@ -26,7 +26,7 @@ func TestCommitsNameTheirAgents(t *testing.T) {
 				{"name":"Paul (aider)","email":"paul@example.com","user":null}]}}
 		]}}}}}}`
 	})
-	commits, err := c.commitsSince(context.Background(), "me", "x", time.Time{}, maxCommitPages)
+	commits, _, err := c.commitsSince(context.Background(), "me", "x", time.Time{}, maxCommitPages)
 	if err != nil {
 		t.Fatal(err)
 	}
