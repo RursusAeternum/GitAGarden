@@ -94,11 +94,14 @@ func skeleton(name string, sp Species, t Totals) (*Plant, habit) {
 	return p, h
 }
 
-// growCanopy puts the leaves, flowers and fruit on a grown skeleton.
+// growCanopy puts the leaves, flowers and fruit on a grown skeleton. Every
+// spot is picked by rendezvous hashing, so a spot coming or going as the
+// skeleton grows moves nothing else.
 func growCanopy(p *Plant, h habit, events []Event, at time.Time) {
 	spots := h.leafSpots()
 	pool := spots[:len(spots)/2] // the leaf budget: half the silhouette
-	for _, q := range pool[:len(pool)/3] {
+	flowers := h.flowerSpots()   // taken from the skeleton alone, so leaves coming and going move no flower
+	for _, q := range ranked(pool, uint64(seedOf(p.Name)))[:len(pool)/3] {
 		p.Grid[q.y][q.x] = Cell{Kind: Leaf} // dormant leaves, from the plant's own order
 	}
 	if len(pool) > 0 {
@@ -107,8 +110,7 @@ func growCanopy(p *Plant, h habit, events []Event, at time.Time) {
 				continue
 			}
 			k := eventHash(p.Name, e)
-			for _, i := range []uint64{k, k >> 20} { // a cluster of up to two leaves
-				q := pool[i%uint64(len(pool))]
+			for _, q := range []pt{best(pool, k), best(pool, mix(k))} { // a cluster of up to two leaves
 				cell := &p.Grid[q.y][q.x]
 				if cell.At != 0 && cell.Level < maxLevel { // a second recent push: lusher
 					cell.Level++
@@ -117,13 +119,13 @@ func growCanopy(p *Plant, h habit, events []Event, at time.Time) {
 			}
 		}
 	}
-	place(p, h.flowerSpots(), events, at, Merge, flowerWindow, len(pool)/4, Flower)
-	place(p, base{p: p}.shuffled(pool, 3), events, at, Release, fruitWindow, maxFruit, Fruit) // fruit hangs among the leaves
+	place(p, flowers, events, at, Merge, flowerWindow, len(pool)/4, Flower)
+	place(p, pool, events, at, Release, fruitWindow, maxFruit, Fruit) // fruit hangs among the leaves
 }
 
 // place puts one cell of kind k per event of kind ek inside window, newest
-// first and at most limit of them, each on a spot picked by the event's own
-// hash; a taken spot sends it to the next.
+// first and at most limit of them, each on the spot its event ranks
+// highest; a taken spot sends it to the next.
 func place(p *Plant, spots []pt, events []Event, at time.Time, ek EventKind, window time.Duration, limit int, k CellKind) {
 	if len(spots) == 0 {
 		return
@@ -139,9 +141,7 @@ func place(p *Plant, spots []pt, events []Event, at time.Time, ek EventKind, win
 		if n == limit {
 			return
 		}
-		h := eventHash(p.Name, e)
-		for try := uint64(0); try < uint64(len(spots)); try++ {
-			q := spots[(h+try)%uint64(len(spots))]
+		for _, q := range ranked(spots, eventHash(p.Name, e)) {
 			if cell := &p.Grid[q.y][q.x]; cell.Kind != Flower && cell.Kind != Fruit {
 				*cell = Cell{Kind: k, At: e.At.Unix()}
 				break
@@ -163,4 +163,34 @@ func eventHash(name string, e Event) uint64 {
 	b[8] = byte(e.Kind)
 	h.Write(b[:])
 	return h.Sum64()
+}
+
+// mix scrambles a 64-bit value (splitmix64's finaliser).
+func mix(x uint64) uint64 {
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	return x ^ x>>31
+}
+
+// rank is how highly h ranks spot q: it depends on h and q alone.
+func rank(h uint64, q pt) uint64 { return mix(h ^ uint64(q.y*Width+q.x+1)*0x9e3779b97f4a7c15) }
+
+// best is the spot h ranks highest.
+func best(spots []pt, h uint64) pt {
+	top, most := spots[0], rank(h, spots[0])
+	for _, q := range spots[1:] {
+		if r := rank(h, q); r > most {
+			top, most = q, r
+		}
+	}
+	return top
+}
+
+// ranked is spots from the one h ranks highest down (rendezvous hashing).
+func ranked(spots []pt, h uint64) []pt {
+	out := append([]pt(nil), spots...)
+	sort.Slice(out, func(i, j int) bool { return rank(h, out[i]) > rank(h, out[j]) })
+	return out
 }

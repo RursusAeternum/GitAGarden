@@ -188,3 +188,57 @@ func BenchmarkGrow50kEvents(b *testing.B) {
 		GrowAt("bench", Shrub, Totals{}, ev, at)
 	}
 }
+
+var sweepNames = []string{"gag-core", "rustyfs", "notebook-api", "dotfiles", "tiny-cli", "site-v2", "lsystem", "old-blog",
+	"garden", "bubbletea", "lipgloss", "fzf", "vim-plug", "api", "web", "cli", "docs", "infra", "tools", "sandbox"}
+
+func TestFlowersStayPutAsTimePasses(t *testing.T) {
+	now := t0.Add(400 * day)
+	ev := append(spread(Push, 300, 300*day, now), spread(Merge, 13, 60*day, now)...)
+	later := now.Add(20 * day) // no new events; every merge is still inside the window
+	for _, sp := range AllSpecies {
+		for _, name := range sweepNames {
+			a, b := GrowAt(name, sp, Totals{}, ev, now), GrowAt(name, sp, Totals{}, ev, later)
+			for y := 0; y < Height; y++ {
+				for x := 0; x < Width; x++ {
+					if a.Grid[y][x].Kind == Flower && b.Grid[y][x].Kind != Flower {
+						t.Errorf("%s %s: the flower at %d,%d moved while its merge is still in the window", sp, name, x, y)
+					}
+				}
+			}
+			if sp == Shrub && kinds(a, Flower) < 12 {
+				t.Errorf("shrub %s: %d flowers for 13 recent merges", name, kinds(a, Flower))
+			}
+		}
+	}
+}
+
+func TestAPushMovesFewLeaves(t *testing.T) {
+	now := t0.Add(400 * day)
+	all := spread(Push, 300, 80*day, now) // all inside the leaf window, at fixed times
+	for _, sp := range AllSpecies {
+		for _, name := range sweepNames[:8] {
+			prev := GrowAt(name, sp, Totals{}, all[:2], now)
+			for n := 3; n <= len(all); n++ {
+				next := GrowAt(name, sp, Totals{}, all[:n], now)
+				gone := 0
+				for y := 0; y < Height; y++ {
+					for x := 0; x < Width; x++ {
+						if prev.Grid[y][x].Kind == Leaf && next.Grid[y][x].Kind != Leaf {
+							gone++
+						}
+					}
+				}
+				// A push adds growth and takes nothing away. Only one that grows the
+				// skeleton a step may shift the leaf pool's edge, by a few leaves.
+				switch step := stepsFor(sp, n) != stepsFor(sp, n-1); {
+				case !step && gone > 0:
+					t.Errorf("%s %s: push %d took %d leaves away; a push adds growth, it doesn't reshuffle", sp, name, n, gone)
+				case step && gone > 10:
+					t.Errorf("%s %s: push %d grew a step and took %d leaves away", sp, name, n, gone)
+				}
+				prev = next
+			}
+		}
+	}
+}

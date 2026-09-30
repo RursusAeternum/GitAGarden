@@ -175,6 +175,8 @@ func drawBurst(c *pixel.Canvas, r Reaction, age time.Duration, cx, oy int, now *
 	if r.Before != nil {
 		if spots := now.NewSpots(r.Before, garden.Flower); len(spots) > 0 {
 			x, y = spots[0].At(cx, plantBase(oy))
+		} else if s, ok := now.NewestFlower(); ok { // every flower spot was taken: the newest flower is the merge's
+			x, y = s.At(cx, plantBase(oy))
 		}
 	}
 	s := age.Seconds()

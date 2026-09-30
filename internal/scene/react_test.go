@@ -339,3 +339,28 @@ func TestABurstOfWeedsComesUpTogether(t *testing.T) {
 		}
 	}
 }
+
+func TestAMergeBurstsAtItsOwnFlowerOnAFullPlant(t *testing.T) {
+	now := at(14, 0)
+	var ev []garden.Event
+	for i := 0; i < 400; i++ {
+		ev = append(ev, garden.Event{Kind: garden.Push, At: now.Add(-time.Duration(400-i) * 18 * time.Hour)})
+	}
+	for i := 0; i < 8; i++ {
+		ev = append(ev, garden.Event{Kind: garden.Merge, At: now.Add(-time.Duration(8-i) * 24 * time.Hour)})
+	}
+	before := garden.GrowAt("full", garden.Cactus, garden.Totals{}, ev[:len(ev)-1], now)
+	after := garden.GrowAt("full", garden.Cactus, garden.Totals{}, ev, now)
+	if len(after.NewSpots(before, garden.Flower)) != 0 {
+		t.Fatal("setup: the cactus should have no free flower spot left")
+	}
+	spot, ok := after.NewestFlower()
+	if !ok {
+		t.Fatal("no flower")
+	}
+	v := View{Cols: BedCols, Plots: []Plot{{Plant: after, Style: garden.Style{Health: 1}, Name: "full"}}, Now: now,
+		Reactions: []Reaction{{Plot: 1, Kind: ReactMerge, Start: now.Add(-300 * time.Millisecond), Before: before}}}
+	if x, y := spot.At(BedCols/2, plantBaseY); Draw(v).At(x, y) != budPink {
+		t.Error("the bud should swell on the new merge's flower, not at the plant's top")
+	}
+}

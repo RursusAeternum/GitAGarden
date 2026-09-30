@@ -200,6 +200,21 @@ func (p *Plant) NewSpots(before *Plant, k CellKind) []Spot {
 	return out
 }
 
+// NewestFlower is where the flower of the newest merge opened, and false
+// when the plant has no flower.
+func (p *Plant) NewestFlower() (Spot, bool) {
+	var best Spot
+	newest := int64(-1)
+	for y := 0; y < Height; y++ {
+		for x := 0; x < Width; x++ {
+			if c := p.Grid[y][x]; c.Kind == Flower && c.At > newest {
+				best, newest = Spot{x, y}, c.At
+			}
+		}
+	}
+	return best, newest >= 0
+}
+
 // WeedSpot is where the i-th weed grows, and false when that weed isn't
 // drawn: past the last slot, or where the plant itself stands.
 func (p *Plant) WeedSpot(i int) (Spot, bool) {
