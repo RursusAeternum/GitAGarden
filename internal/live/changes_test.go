@@ -226,3 +226,14 @@ func TestWeedCountsSplitTheChange(t *testing.T) {
 		}
 	}
 }
+
+func TestTotalsArrivingAreNoNews(t *testing.T) {
+	before := baseRepo() // its counters counted from a cache without totals
+	after := before
+	grown := *before.Plant
+	grown.Pushes, grown.Merges, grown.OpenIssues = 4200, 2500, 120 // GitHub's totals, from the next fetch
+	after.Plant = &grown
+	if got := ChangesBetween([]Repo{before}, []Repo{after}); len(got) != 0 {
+		t.Errorf("counters that jump without new commits, merges or issues: %+v", got)
+	}
+}

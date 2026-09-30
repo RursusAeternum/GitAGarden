@@ -103,7 +103,7 @@ func changesOf(b, r Repo) []Change {
 		}
 		add(scene.ReactPush, "💧", text, d.LastCommit.By)
 	}
-	if merges > 0 {
+	if merges > 0 && d.LastMerge.At.After(bd.LastMerge.At) { // a counter can jump without a merge: when totals first arrive
 		text := "merged a PR"
 		if d.LastMerge.Number != 0 {
 			text = fmt.Sprintf("merged #%d %s", d.LastMerge.Number, tickerText(d.LastMerge.Title))
