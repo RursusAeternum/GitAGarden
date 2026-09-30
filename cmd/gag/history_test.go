@@ -7,6 +7,7 @@ import (
 	"github.com/RursusAeternum/GitAGarden/internal/config"
 	"github.com/RursusAeternum/GitAGarden/internal/garden"
 	"github.com/RursusAeternum/GitAGarden/internal/github"
+	"github.com/RursusAeternum/GitAGarden/internal/live"
 )
 
 // bigRepo is a repo with 3000 commits, one every 17 hours up to now, as a
@@ -76,5 +77,22 @@ func TestCardCountsOpenIssuesFromTotals(t *testing.T) {
 		Issues: []github.Issue{{Number: 500, Title: "newest", CreatedAt: now.Add(-time.Hour)}}}
 	if d := detailFor(r, now); d.OpenIssues != 120 || d.NewestIssue.Number != 500 {
 		t.Errorf("open issues %d, newest #%d; want GitHub's 120 and #500", d.OpenIssues, d.NewestIssue.Number)
+	}
+}
+
+func TestTheModesAgreeOnWhatJustHappened(t *testing.T) {
+	now := time.Now()
+	closed := now.Add(-200 * 24 * time.Hour)
+	full := &github.Repo{NameWithOwner: "me/x", Totals: &github.Totals{Commits: 1, Merged: 1},
+		Commits: []github.Commit{{At: now.Add(-time.Hour), Message: "work"}},
+		Issues:  []github.Issue{{Number: 3, Title: "fixed long ago", CreatedAt: now.Add(-300 * 24 * time.Hour), ClosedAt: &closed}},
+		PRs:     []github.PR{{Number: 5, Title: "merged long ago", MergedAt: now.Add(-250 * 24 * time.Hour)}}}
+	recent := *full // what a recent fetch of the same repo holds
+	recent.History, recent.Issues, recent.PRs = "recent", nil, nil
+	if a, b := detailFor(full, now), detailFor(&recent, now); a.LastClosed != b.LastClosed || a.LastMerge != b.LastMerge {
+		t.Errorf("full: closed %+v, merged %+v; recent: closed %+v, merged %+v", a.LastClosed, a.LastMerge, b.LastClosed, b.LastMerge)
+	}
+	if got := live.ChangesBetween([]live.Repo{repoFor(&recent, now, now)}, []live.Repo{repoFor(full, now, now)}); len(got) != 0 {
+		t.Errorf("the cache changing shape, say after a replay, played %+v", got)
 	}
 }

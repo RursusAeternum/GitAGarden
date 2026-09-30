@@ -19,6 +19,9 @@ func detailFor(r *github.Repo, now time.Time) live.Detail {
 		}
 	}
 	d.Daily = live.DailyCommits(times, now)
+	// The newest merge and closure count only inside the window a recent
+	// fetch covers, so both history modes see the same news.
+	window := now.Add(-github.RecentWindow)
 	for _, pr := range r.OpenPRs {
 		if pr.Draft {
 			d.Drafts++
@@ -28,13 +31,13 @@ func detailFor(r *github.Repo, now time.Time) live.Detail {
 	}
 	sort.SliceStable(d.PRs, func(i, j int) bool { return d.PRs[i].At.Before(d.PRs[j].At) })
 	for _, pr := range r.PRs {
-		if pr.MergedAt.After(d.LastMerge.At) {
+		if pr.MergedAt.After(d.LastMerge.At) && !pr.MergedAt.Before(window) {
 			d.LastMerge = live.Entry{Number: pr.Number, Title: pr.Title, At: pr.MergedAt}
 		}
 	}
 	for _, is := range r.Issues {
 		if is.ClosedAt != nil {
-			if is.ClosedAt.After(d.LastClosed.At) {
+			if is.ClosedAt.After(d.LastClosed.At) && !is.ClosedAt.Before(window) {
 				d.LastClosed = live.Entry{Number: is.Number, Title: is.Title, At: *is.ClosedAt}
 			}
 			continue
