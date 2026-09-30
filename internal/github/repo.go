@@ -58,7 +58,7 @@ type Repo struct {
 	Branch        string    `json:"branch,omitempty"`  // the default branch
 	CI            string    `json:"ci,omitempty"`      // statusCheckRollup state of its latest commit
 	Totals        *Totals   `json:"totals,omitempty"`  // GitHub's counts; nil in caches from before v0.8
-	History       string    `json:"history,omitempty"` // "recent" when only recent history was fetched
+	History       string    `json:"history,omitempty"` // "recent": only recent history; "commits": every commit, recent lists
 	FetchedAt     time.Time `json:"fetchedAt"`
 }
 
@@ -86,9 +86,13 @@ const RecentWindow = 90 * 24 * time.Hour
 // whatever their age.
 const recentReleases = 10
 
-// Complete reports whether r holds its whole history rather than only the
-// recent part. Caches from before v0.8 always fetched everything.
-func (r *Repo) Complete() bool { return r.History != "recent" }
+// Complete reports whether r holds its whole history: every commit, PR,
+// issue and release. Caches from before v0.8 always fetched everything.
+func (r *Repo) Complete() bool { return r.History == "" || r.History == "full" }
+
+// CommitsComplete reports whether r's commits reach back to the first one,
+// whatever its PRs, issues and releases hold.
+func (r *Repo) CommitsComplete() bool { return r.History != "recent" }
 
 // GardenTotals are r's totals as a plant grows from them; zero when GitHub's
 // counts are unknown, and the plant counts its events instead.

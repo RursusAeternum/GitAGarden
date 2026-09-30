@@ -226,10 +226,10 @@ func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 	recent := c.History == RecentHistory
 	cutoff := time.Now().Add(-RecentWindow)
 
-	complete := !recent
+	commitsWhole := !recent
 	var since time.Time
-	if cached != nil && (recent || cached.Complete()) { // full history can't build on a recent cache
-		r.Commits, complete = cached.Commits, cached.Complete()
+	if cached != nil && (recent || cached.CommitsComplete()) { // full history can't build on recent commits
+		r.Commits, commitsWhole = cached.Commits, cached.CommitsComplete()
 		for _, cm := range cached.Commits {
 			if cm.At.After(since) {
 				since = cm.At
@@ -249,8 +249,12 @@ func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 			return fmt.Errorf("commits: %w", err)
 		}
 	}
-	r.History = "full"
-	if !complete {
+	switch {
+	case !recent:
+		r.History = "full"
+	case commitsWhole: // recent lists on whole commits: replay must still fetch the lists
+		r.History = "commits"
+	default:
 		r.History = "recent"
 	}
 

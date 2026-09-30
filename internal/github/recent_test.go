@@ -136,8 +136,8 @@ func TestCompleteCacheServesRecent(t *testing.T) {
 	if err := c.fetch(context.Background(), r, cached); err != nil {
 		t.Fatal(err)
 	}
-	if !r.Complete() || len(r.Commits) != 2 {
-		t.Errorf("history %q with %d commits: a complete cache stays complete", r.History, len(r.Commits))
+	if !r.CommitsComplete() || r.History != "commits" || len(r.Commits) != 2 {
+		t.Errorf("history %q with %d commits: a complete cache keeps its whole commits", r.History, len(r.Commits))
 	}
 	for _, call := range calls() {
 		if strings.Contains(call.Query, "history(") && call.Variables["since"] != newest.Add(time.Second).Format(time.RFC3339) {
@@ -279,5 +279,52 @@ func TestRecentListsPageOnOnlyInsideTheWindow(t *testing.T) {
 	}
 	if n := len(calls()); n != 4 {
 		t.Errorf("%d requests; want 4: commits, the lists, one more page of merged PRs, CI", n)
+	}
+}
+
+func TestARecentRefreshIsNotAFullHistory(t *testing.T) {
+	oldest := time.Now().Add(-400 * day).UTC().Truncate(time.Second)
+	cached := &Repo{NameWithOwner: "me/x", Commits: []Commit{{At: oldest}},
+		PRs: make([]PR, 300), Releases: make([]Release, 40)} // complete: from before v0.8, or a full fetch
+	rc, _ := recordingGitHub(t, func(call gqlCall) string {
+		if strings.Contains(call.Query, "history(") {
+			return commitsAnswer(``)
+		}
+		return emptyConn
+	})
+	rc.History = RecentHistory
+	r := &Repo{NameWithOwner: "me/x"}
+	if err := rc.fetch(context.Background(), r, cached); err != nil {
+		t.Fatal(err)
+	}
+	if r.Complete() || !r.CommitsComplete() {
+		t.Errorf("history %q: recent lists on whole commits are no full history, though the commits are whole", r.History)
+	}
+	// Replay, a full Sync within the TTL, must fetch the lists again, and
+	// only the commits newer than the cached ones.
+	fc, calls := recordingGitHub(t, func(call gqlCall) string {
+		switch q := call.Query; {
+		case strings.Contains(q, "history("):
+			return commitsAnswer(``)
+		case strings.Contains(q, "states:MERGED"):
+			return `{"data":{"repository":{"conn":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+				{"number":1,"title":"a","mergedAt":"2020-01-01T00:00:00Z"},{"number":2,"title":"b","mergedAt":"2021-01-01T00:00:00Z"}]}}}}`
+		}
+		return emptyConn
+	})
+	fc.History = FullHistory
+	r.FetchedAt = time.Now()
+	s := &Store{path: filepath.Join(t.TempDir(), "repos.json"), Repos: map[string]*Repo{"me/x": r}}
+	repos, err := Sync(context.Background(), fc, s, []*Repo{{NameWithOwner: "me/x"}}, time.Hour, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := repos[0]; len(calls()) == 0 || len(got.PRs) != 2 || !got.Complete() {
+		t.Errorf("%d requests, %d PRs, history %q: a full Sync must refetch what a recent one left out", len(calls()), len(got.PRs), got.History)
+	}
+	for _, call := range calls() {
+		if strings.Contains(call.Query, "history(") && call.Variables["since"] == nil {
+			t.Error("the commits were whole already: want only the newer ones")
+		}
 	}
 }
