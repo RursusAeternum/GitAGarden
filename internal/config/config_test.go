@@ -9,13 +9,13 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	src := "\ufeff# my garden\r\nsky = Stars  # opt in\r\n\r\nLIMIT=12\nrepos = me/a, other/b\nuser = octocat\nrefresh = 2m\ndecay = 30\n"
+	src := "\ufeff# my garden\r\nsky = Stars  # opt in\r\n\r\nLIMIT=12\nrepos = me/a, other/b\nuser = octocat\nrefresh = 2m\ndecay = 30\nhistory = FULL\n"
 	c, warns := Parse(strings.NewReader(src))
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
 	}
 	want := Config{Sky: "stars", Limit: 12, Repos: []string{"me/a", "other/b"}, User: "octocat",
-		Refresh: 2 * time.Minute, Decay: 30}
+		Refresh: 2 * time.Minute, Decay: 30, History: "full"}
 	got := c
 	got.From = nil
 	if !reflect.DeepEqual(got, want) {
@@ -96,6 +96,7 @@ func TestDescribe(t *testing.T) {
 		"user     -       (default)",
 		"refresh  5m      (default)",
 		"decay    45      (default)",
+		"history  recent  (default)",
 		"",
 	}, "\n")
 	if got := c.Describe("/h/.config/gag/config", true); got != want {
@@ -132,5 +133,15 @@ func TestDecayMustBeAFiniteNumber(t *testing.T) {
 		if len(warns) != 1 || c.Decay != 45 {
 			t.Errorf("decay = %s: decay %v, warnings %v; want one warning and 45", v, c.Decay, warns)
 		}
+	}
+}
+
+func TestHistoryIsRecentOrFull(t *testing.T) {
+	if c := Defaults(); c.History != "recent" {
+		t.Errorf("default history = %q, want recent", c.History)
+	}
+	c, warns := Parse(strings.NewReader("history = everything\n"))
+	if c.History != "recent" || len(warns) != 1 || !strings.Contains(warns[0].String(), "isn't recent or full") {
+		t.Errorf("history %q, warnings %v; want the default and one warning", c.History, warns)
 	}
 }

@@ -31,15 +31,16 @@ type Config struct {
 	User    string
 	Refresh time.Duration
 	Decay   float64
+	History string            // "recent" or "full": how much history GAG fetches
 	From    map[string]Source // where each key's value came from
 }
 
 // Keys lists the settings in the order `gag config` shows them.
-var Keys = []string{"sky", "limit", "repos", "user", "refresh", "decay"}
+var Keys = []string{"sky", "limit", "repos", "user", "refresh", "decay", "history"}
 
 // Defaults are the settings when there is no config file.
 func Defaults() Config {
-	c := Config{Sky: "random", Limit: 8, Refresh: 5 * time.Minute, Decay: 45, From: map[string]Source{}}
+	c := Config{Sky: "random", Limit: 8, Refresh: 5 * time.Minute, Decay: 45, History: "recent", From: map[string]Source{}}
 	for _, k := range Keys {
 		c.From[k] = Default
 	}
@@ -169,6 +170,13 @@ func (c *Config) set(key, val string) string {
 			return fmt.Sprintf("decay %q isn't a number of days above 0; using %g", val, c.Decay)
 		}
 		c.Decay = f
+	case "history":
+		switch v := strings.ToLower(val); v {
+		case "recent", "full":
+			c.History = v
+			return ""
+		}
+		return fmt.Sprintf("history %q isn't recent or full; using %s", val, c.History)
 	default:
 		return fmt.Sprintf("unknown setting %q (known: %s)", key, strings.Join(Keys, ", "))
 	}
@@ -210,6 +218,8 @@ func (c Config) value(key string) string {
 		return short(c.Refresh)
 	case "decay":
 		return strconv.FormatFloat(c.Decay, 'g', -1, 64)
+	case "history":
+		return c.History
 	}
 	return ""
 }
