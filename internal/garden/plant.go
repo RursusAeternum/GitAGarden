@@ -3,7 +3,6 @@ package garden
 import (
 	"hash/fnv"
 	"math"
-	"math/rand"
 	"sort"
 	"time"
 )
@@ -50,45 +49,10 @@ type Plant struct {
 	stamp     int64 // the time of the event being replayed; new cells get it
 }
 
-// Grow builds a plant from scratch by replaying events in order. The same
-// name, species and events always produce the same plant.
+// Grow grows a plant from a repo's whole history, as of its last event.
+// The same name, species and events always produce the same plant.
 func Grow(name string, sp Species, events []Event) *Plant {
-	r := rand.New(rand.NewSource(seedOf(name)))
-	p := &Plant{Name: name, Species: sp}
-	for x := 0; x < Width; x++ {
-		if x < center-1 || x > center+1 {
-			p.weedSlots = append(p.weedSlots, x)
-		}
-	}
-	r.Shuffle(len(p.weedSlots), func(i, j int) {
-		p.weedSlots[i], p.weedSlots[j] = p.weedSlots[j], p.weedSlots[i]
-	})
-
-	g := newGrower(sp, p, r)
-	for _, e := range events {
-		p.stamp = e.At.Unix()
-		switch e.Kind {
-		case Push:
-			p.Pushes++
-			g.push()
-		case Merge:
-			p.Merges++
-			g.merge()
-		case Release:
-			p.Releases++
-			g.release()
-		case IssueOpened:
-			p.OpenIssues++
-		case IssueClosed:
-			if p.OpenIssues > 0 {
-				p.OpenIssues--
-			}
-		}
-		if e.Kind.Tends() && e.At.After(p.LastTended) {
-			p.LastTended = e.At
-		}
-	}
-	return p
+	return GrowAt(name, sp, Totals{}, events, time.Time{})
 }
 
 func (p *Plant) inBounds(x, y int) bool {

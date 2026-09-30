@@ -39,15 +39,23 @@ func (s Species) Next() Species {
 
 const maxLevel = 2
 
-// A grower turns events into additions on the grid. Each species has its
-// own growth habit, but every push, merge and release adds something.
-type grower interface {
-	push()
-	merge()
-	release()
+// A habit is how a species grows. Its skeleton grows one structural step at
+// a time, from the plant's own random stream; the canopy then goes into the
+// spots it offers, all inside the species' silhouette.
+type habit interface {
+	// step grows the skeleton by one structural step, no higher than row top.
+	step(top int)
+	// leafSpots are the cells leaves may take, in the plant's own order.
+	leafSpots() []pt
+	// flowerSpots are where flowers open.
+	flowerSpots() []pt
 }
 
-func newGrower(sp Species, p *Plant, r *rand.Rand) grower {
+// fullSteps is how many structural steps a species takes to reach full
+// size, at about 500 pushes.
+var fullSteps = map[Species]int{Shrub: 34, Cactus: 44, Rosette: 60}
+
+func newHabit(sp Species, p *Plant, r *rand.Rand) habit {
 	b := base{p: p, r: r}
 	switch sp {
 	case Cactus:
@@ -65,78 +73,45 @@ type base struct {
 
 var dirs8 = []pt{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
 
-// sprout places a new cell of kind k in a free spot next to one of the
-// anchors and says where. The ground row is left to the stem base and weeds.
-func (b base) sprout(anchors []pt, k CellKind, upOnly bool) (pt, bool) {
-	return b.sproutCell(anchors, b.p.cell(k), upOnly)
-}
-
-// sproutCell is sprout for a ready-made cell, so a moved bloom keeps its
-// birth time.
-func (b base) sproutCell(anchors []pt, cell Cell, upOnly bool) (pt, bool) {
-	try := func(a, d pt) (pt, bool) {
-		x, y := a.x+d.x, a.y+d.y
-		if (upOnly && d.y > 0) || y >= ground || !b.p.free(x, y) {
-			return pt{}, false
-		}
-		b.p.Grid[y][x] = cell
-		return pt{x, y}, true
-	}
-	if len(anchors) == 0 {
-		return pt{}, false
-	}
-	for i := 0; i < 24; i++ {
-		if q, ok := try(anchors[b.r.Intn(len(anchors))], dirs8[b.r.Intn(len(dirs8))]); ok {
-			return q, true
-		}
-	}
-	for _, i := range b.r.Perm(len(anchors)) {
-		for _, d := range dirs8 {
-			if q, ok := try(anchors[i], d); ok {
-				return q, true
+// near lists the empty cells above the ground row within Chebyshev distance
+// d of a cell of one of kinds, top to bottom, left to right.
+func (b base) near(d int, kinds ...CellKind) []pt {
+	var out []pt
+	for y := 0; y < ground; y++ {
+		for x := 0; x < Width; x++ {
+			if !b.p.free(x, y) {
+				continue
+			}
+		search:
+			for dy := -d; dy <= d; dy++ {
+				for dx := -d; dx <= d; dx++ {
+					if b.p.inBounds(x+dx, y+dy) {
+						for _, k := range kinds {
+							if b.p.Grid[y+dy][x+dx].Kind == k {
+								out = append(out, pt{x, y})
+								break search
+							}
+						}
+					}
+				}
 			}
 		}
 	}
-	return pt{}, false
+	return out
 }
 
-// bloom places a new flower or fruit near the anchors.
-func (b base) bloom(anchors []pt, k CellKind) { b.bloomCell(anchors, b.p.cell(k)) }
-
-// bloomCell places cell near the anchors, falling back to anywhere on the
-// plant, and finally to taking an existing leaf's place.
-func (b base) bloomCell(anchors []pt, cell Cell) {
-	if _, ok := b.sproutCell(anchors, cell, true); ok {
-		return
-	}
-	if _, ok := b.sproutCell(b.p.cellsOf(Stem, Body, Leaf), cell, false); ok {
-		return
-	}
-	if leaves := b.p.cellsOf(Leaf); len(leaves) > 0 {
-		c := leaves[b.r.Intn(len(leaves))]
-		b.p.Grid[c.y][c.x] = cell
-	}
+// shuffled is ps in an order of the plant's own: the same plant always gives
+// the same order, whatever else happens.
+func (b base) shuffled(ps []pt, salt int) []pt {
+	out := append([]pt(nil), ps...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return hash01(b.p.Name, out[i].x+salt*100, out[i].y) < hash01(b.p.Name, out[j].x+salt*100, out[j].y)
+	})
+	return out
 }
 
-// thicken makes an existing leaf lusher. Used once there is no room to add a
-// new one, so late-life pushes still visibly count.
-func (b base) thicken() bool {
-	leaves := b.p.cellsOf(Leaf)
-	for _, i := range b.r.Perm(len(leaves)) {
-		c := &b.p.Grid[leaves[i].y][leaves[i].x]
-		if c.Level < maxLevel {
-			c.Level++
-			c.At = b.p.stamp // lusher is new growth too
-			return true
-		}
-	}
-	return false
-}
-
-// topY is the highest row the plant may currently grow into.
-func (b base) topY() int { return max(1, ground-heightCap(b.p.Pushes)) }
-
-// ---- shrub: branching woody stems with leaf clusters ----
+// ---- shrub: branching woody stems; leaves cluster around them in a
+// rounded crown ----
 
 type tip struct{ x, y, lean int }
 
@@ -146,90 +121,115 @@ type shrub struct {
 }
 
 func newShrub(b base) *shrub {
-	// Seedling: a short stem with a leaf on each side.
-	for y := ground; y > ground-3; y-- {
+	for y := ground; y > ground-3; y-- { // seedling: a short stem
 		b.p.set(center, y, Stem)
 	}
-	b.p.set(center-1, ground-2, Leaf)
-	b.p.set(center+1, ground-2, Leaf)
 	return &shrub{base: b, tips: []tip{{center, ground - 2, 0}}}
 }
 
-func (s *shrub) push() {
-	if s.r.Float64() < 0.45 && s.grow() {
-		return
-	}
-	anchors := s.p.cellsOf(Stem)
-	if s.r.Float64() < 0.4 {
-		anchors = s.p.cellsOf(Stem, Leaf)
-	}
-	if s.leafCluster(anchors) || s.grow() {
-		return
-	}
-	s.thicken()
-}
-
-// leafCluster sprouts a leaf and, when there's room, a second one touching
-// it, so foliage reads as leaves rather than single-pixel noise.
-func (s *shrub) leafCluster(anchors []pt) bool {
-	q, ok := s.sprout(anchors, Leaf, false)
-	if ok {
-		s.sprout([]pt{q}, Leaf, false)
-	}
-	return ok
-}
-
-// grow extends one branch tip upwards, sometimes forking. A tip held back
-// only by the height cap stays alive for later; one boxed in is dropped.
-func (s *shrub) grow() bool {
-	top := s.topY()
+// step extends one branch tip upwards, sometimes forking. A tip held back
+// only by the height limit stays alive for later; one boxed in is dropped.
+func (s *shrub) step(top int) {
 	var dead []int
+	defer func() {
+		sort.Sort(sort.Reverse(sort.IntSlice(dead)))
+		for _, i := range dead {
+			s.tips = append(s.tips[:i], s.tips[i+1:]...)
+		}
+	}()
 	for _, i := range s.r.Perm(len(s.tips)) {
 		t := &s.tips[i]
 		leans := []int{t.lean, -1, 0, 1}
 		s.r.Shuffle(3, func(a, b int) { leans[a+1], leans[b+1] = leans[b+1], leans[a+1] })
 		for _, dx := range leans {
 			x, y := t.x+dx, t.y-1
-			if y < top || !s.p.free(x, y) {
+			if y < top || !s.p.free(x, y) || abs(x-center) > 2*(ground-y)/5+2 { // a widening cone: bushy, not sprawling
 				continue
 			}
 			s.p.set(x, y, Stem)
 			t.x, t.y = x, y
-			if s.r.Float64() < 0.35 {
+			if s.r.Float64() < 0.25 {
 				t.lean = dx
 			}
-			if len(s.tips) < 7 && y < ground-4 && s.r.Float64() < 0.18 {
+			if len(s.tips) < 7 && y < ground-4 && s.r.Float64() < 0.25 {
 				s.tips = append(s.tips, tip{x, y, []int{-1, 1}[s.r.Intn(2)]})
 			}
-			return true
+			return
 		}
 		if t.y-1 >= top {
 			dead = append(dead, i)
 		}
 	}
-	sort.Sort(sort.Reverse(sort.IntSlice(dead)))
-	for _, i := range dead {
-		s.tips = append(s.tips[:i], s.tips[i+1:]...)
-	}
-	return false
 }
 
-func (s *shrub) tipPts() []pt {
-	var out []pt
-	for _, t := range s.tips {
-		out = append(out, pt{t.x, t.y})
+// crown is the shrub's rounded crown: an ellipse around its stems, clear
+// of the bare lower trunk. in reports whether a cell lies inside it.
+func (s *shrub) crown(stems []pt) (in func(x, y int) bool) {
+	top, left, right := ground, center, center
+	for _, q := range stems {
+		top, left, right = min(top, q.y), min(left, q.x), max(right, q.x)
 	}
-	if len(out) == 0 {
-		out = s.p.cellsOf(Stem)
+	bottom := ground - 3
+	if top >= bottom {
+		return func(x, y int) bool { return y >= top-1 && y < ground }
+	}
+	cy, ry := float64(top+bottom)/2, float64(bottom-top)/2+2
+	cx, rx := float64(left+right)/2, float64(right-left)/2+4
+	return func(x, y int) bool { // never more than a row above the highest stem
+		dx, dy := (float64(x)-cx)/rx, (float64(y)-cy)/ry
+		return y >= top-1 && dx*dx+dy*dy <= 1
+	}
+}
+
+// Shrub leaves take the crown nearest the branches first, so foliage
+// gathers around them and the crown's edge stays airy.
+func (s *shrub) leafSpots() []pt {
+	stems := s.p.cellsOf(Stem)
+	inCrown := s.crown(stems)
+	type spot struct {
+		p   pt
+		key float64
+	}
+	var in []spot
+	for y := 0; y < ground-2; y++ {
+		for x := 0; x < Width; x++ {
+			if !s.p.free(x, y) || !inCrown(x, y) {
+				continue
+			}
+			d := Width
+			for _, q := range stems {
+				d = min(d, max(abs(q.x-x), abs(q.y-y)))
+			}
+			in = append(in, spot{pt{x, y}, float64(d) + 0.9*hash01(s.p.Name, x+100, y)})
+		}
+	}
+	sort.SliceStable(in, func(i, j int) bool { return in[i].key < in[j].key })
+	out := make([]pt, len(in))
+	for i, sp := range in {
+		out[i] = sp.p
 	}
 	return out
 }
 
-func (s *shrub) merge()   { s.bloom(s.tipPts(), Flower) }
-func (s *shrub) release() { s.bloom(s.p.cellsOf(Leaf), Fruit) }
+func abs(v int) int { return max(v, -v) }
+
+func (s *shrub) flowerSpots() []pt {
+	var out []pt
+	for _, t := range s.tips {
+		for _, d := range dirs8 {
+			if x, y := t.x+d.x, t.y+d.y; s.p.free(x, y) && y < ground {
+				out = append(out, pt{x, y})
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = s.leafSpots()
+	}
+	return s.shuffled(dedup(out), 2)
+}
 
 // ---- cactus: a three-pixel trunk that grows tall, then sprouts two-pixel
-// arms; spines fill in around it ----
+// arms; spines stand around its flesh ----
 
 type cactus struct {
 	base
@@ -246,57 +246,27 @@ func newCactus(b base) *cactus {
 
 func (c *cactus) row(y int) {
 	for dx := -1; dx <= 1; dx++ {
-		c.grow(center+dx, y)
+		c.p.set(center+dx, y, Body)
 	}
 }
 
-// open reports whether flesh may grow into x,y: empty, or a spine, flower
-// or fruit that it pushes aside.
-func (c *cactus) open(x, y int) bool {
-	if !c.p.inBounds(x, y) {
-		return false
-	}
-	k := c.p.Grid[y][x].Kind
-	return k == Empty || k == Leaf || k == Flower || k == Fruit
-}
-
-// grow turns x,y into flesh. A flower or fruit there is carried up onto the
-// new growth, keeping its birth time, so merges crown the cactus instead of
-// capping it.
-func (c *cactus) grow(x, y int) {
-	old := c.p.Grid[y][x]
-	c.p.set(x, y, Body)
-	if old.Kind == Flower || old.Kind == Fruit {
-		c.bloomCell([]pt{{x, y}}, old)
-	}
-}
-
-func (c *cactus) push() {
+func (c *cactus) step(top int) {
 	f := c.r.Float64()
 	switch {
-	case f < 0.35 && c.growBody():
-		return
-	case f < 0.50 && c.sproutArm():
-		return
-	case f < 0.65 && c.growArm():
-		return
+	case f < 0.55 && c.growBody(top):
+	case f < 0.70 && c.sproutArm():
+	case c.growArm():
+	case c.growBody(top):
 	}
-	if _, ok := c.sprout(c.p.cellsOf(Body), Leaf, false); ok {
-		return
-	}
-	if c.growBody() || c.growArm() {
-		return
-	}
-	c.thicken()
 }
 
-func (c *cactus) growBody() bool {
+func (c *cactus) growBody(top int) bool {
 	y := c.top - 1
-	if y < c.topY() {
+	if y < max(top, 1) {
 		return false
 	}
 	for dx := -1; dx <= 1; dx++ {
-		if !c.open(center+dx, y) {
+		if !c.p.free(center+dx, y) {
 			return false
 		}
 	}
@@ -315,12 +285,12 @@ func (c *cactus) sproutArm() bool {
 	}
 	y := c.top + 3 + c.r.Intn(ground-c.top-7) // between top+3 and ground-5
 	for dx := 2; dx <= 4; dx++ {
-		if !c.open(center+dx*side, y) {
+		if !c.p.free(center+dx*side, y) {
 			return false
 		}
 	}
 	for dx := 2; dx <= 4; dx++ {
-		c.grow(center+dx*side, y)
+		c.p.set(center+dx*side, y, Body)
 	}
 	c.arms = append(c.arms, tip{x: center + 3*side, y: y, lean: side})
 	return true
@@ -332,36 +302,59 @@ func (c *cactus) growArm() bool {
 	for _, i := range c.r.Perm(len(c.arms)) {
 		a := &c.arms[i]
 		y := a.y - 1
-		if y <= c.top+1 || !c.open(a.x, y) || !c.open(a.x+a.lean, y) {
+		if y <= c.top+1 || !c.p.free(a.x, y) || !c.p.free(a.x+a.lean, y) {
 			continue
 		}
 		a.y = y
-		c.grow(a.x, y)
-		c.grow(a.x+a.lean, y)
+		c.p.set(a.x, y, Body)
+		c.p.set(a.x+a.lean, y, Body)
 		return true
 	}
 	return false
 }
 
-func (c *cactus) merge() {
-	anchors := []pt{{center, c.top}}
-	for _, a := range c.arms {
-		anchors = append(anchors, pt{a.x, a.y})
+// Spines stand beside the flesh, never above the crown of the trunk or an
+// arm, where flowers go.
+func (c *cactus) leafSpots() []pt {
+	var out []pt
+	for _, q := range c.near(1, Body) {
+		if q.y > c.top {
+			out = append(out, q)
+		}
 	}
-	c.bloom(anchors, Flower)
+	return c.shuffled(out, 1)
 }
 
-func (c *cactus) release() { c.bloom(c.p.cellsOf(Body), Fruit) }
+func (c *cactus) flowerSpots() []pt {
+	var out []pt
+	for dx := -1; dx <= 1; dx++ {
+		if c.p.free(center+dx, c.top-1) {
+			out = append(out, pt{center + dx, c.top - 1})
+		}
+	}
+	for _, a := range c.arms {
+		for _, x := range []int{a.x, a.x + a.lean} {
+			if c.p.free(x, a.y-1) {
+				out = append(out, pt{x, a.y - 1})
+			}
+		}
+	}
+	return c.shuffled(out, 2)
+}
 
-// ---- rosette: a low succulent that fills out from the middle, then sends
-// up a flowering stalk as PRs land ----
+// ---- rosette: a low succulent that fills out from the middle, and sends
+// up a flowering stalk ----
 
 type rosette struct {
 	base
-	slots []pt
-	next  int
-	stalk []pt
+	slots []pt // the rosette's cells, innermost first
+	width int  // how many of them its base fills
+	stalk int
 }
+
+// baseShare is how much of the full rosette its base fills at full size;
+// the canopy's leaves go in the ring around it.
+const baseShare = 0.6
 
 func newRosette(b base) *rosette {
 	type slot struct {
@@ -382,56 +375,87 @@ func newRosette(b base) *rosette {
 	for _, s := range ss {
 		g.slots = append(g.slots, s.p)
 	}
-	for i := 0; i < 3; i++ { // seedling
-		g.addLeaf()
-	}
+	g.widen(3) // seedling
 	return g
 }
 
-// addLeaf fills the next free slot, innermost first.
-func (g *rosette) addLeaf() bool {
-	for g.next < len(g.slots) {
-		s := g.slots[g.next]
-		g.next++
-		if g.p.free(s.x, s.y) {
+// widen fills the base out to its first n slots.
+func (g *rosette) widen(n int) {
+	for ; g.width < min(n, len(g.slots)); g.width++ {
+		if s := g.slots[g.width]; g.p.free(s.x, s.y) {
 			g.p.set(s.x, s.y, Leaf)
-			return true
 		}
 	}
-	return false
 }
 
-func (g *rosette) push() {
-	// The spread grows with the log of pushes too, so busy rosettes fill out gradually.
-	if limit := 3 + int(growthFrac(g.p.Pushes)*float64(len(g.slots)-3)); g.next < limit && g.addLeaf() {
-		return
-	}
-	if !g.thicken() {
-		g.growStalk(1)
-	}
-}
-
-func (g *rosette) growStalk(n int) {
-	for i := 0; i < n; i++ {
-		y := ground - 9 - len(g.stalk)
-		if y < 2 || !g.p.free(center, y) {
-			return
+// step widens the base, and every fourth step or so raises the stalk from
+// its middle.
+func (g *rosette) step(top int) {
+	full := int(baseShare * float64(len(g.slots)))
+	g.widen(g.width + max(1, full/fullSteps[Rosette]))
+	if g.r.Intn(4) == 0 && g.stalk < maxStalk {
+		if y := ground - 1 - g.stalk; y >= max(top, 2) {
+			g.p.set(center, y, Stem) // through the base's leaves
+			g.stalk++
 		}
-		g.p.set(center, y, Stem)
-		g.stalk = append(g.stalk, pt{center, y})
 	}
 }
 
-func (g *rosette) merge() {
-	g.growStalk(2)
-	anchors := g.stalk
-	if len(anchors) > 3 {
-		anchors = anchors[len(anchors)-3:]
+// maxStalk is how tall a rosette's stalk grows, from the ground.
+const maxStalk = 16
+
+// The rosette's canopy is the ring of slots around its base, innermost
+// first: a busy rosette spreads wider.
+func (g *rosette) leafSpots() []pt {
+	var out []pt
+	for _, s := range g.slots[g.width:] {
+		if g.p.free(s.x, s.y) {
+			out = append(out, s)
+		}
 	}
-	if len(anchors) == 0 {
-		anchors = g.p.cellsOf(Leaf)
-	}
-	g.bloom(anchors, Flower)
+	return out
 }
 
-func (g *rosette) release() { g.bloom(g.p.cellsOf(Leaf), Fruit) }
+func (g *rosette) flowerSpots() []pt {
+	var out []pt
+	if g.stalk > 0 {
+		for y := ground - g.stalk; y <= ground-g.stalk+2; y++ {
+			for _, x := range []int{center - 1, center + 1} {
+				if g.p.free(x, y) {
+					out = append(out, pt{x, y})
+				}
+			}
+		}
+		if y := ground - 1 - g.stalk; g.p.free(center, y) {
+			out = append(out, pt{center, y})
+		}
+	}
+	if len(out) == 0 {
+		out = g.leafSpots()
+	}
+	return g.shuffled(out, 2)
+}
+
+func dedup(ps []pt) []pt {
+	seen := map[pt]bool{}
+	var out []pt
+	for _, q := range ps {
+		if !seen[q] {
+			seen[q] = true
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// stepsFor is how many structural steps a skeleton takes at a push count:
+// the same log curve as its height.
+func stepsFor(sp Species, pushes int) int {
+	return int(float64(fullSteps[sp]) * growthFrac(pushes))
+}
+
+// stepTop is the highest row the skeleton may reach at step k of n: the
+// height limit rises with the steps taken, as it rises with pushes.
+func stepTop(k, n int) int {
+	return ground - (seedlingHeight + k*(Height-2-seedlingHeight)/max(n, 1))
+}
