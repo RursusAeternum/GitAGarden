@@ -22,6 +22,8 @@ type Client struct {
 	token string
 	hc    *http.Client
 	url   string // GraphQL endpoint; tests point it at a fake server
+
+	History HistoryMode // how much history Sync fetches; FullHistory by default
 }
 
 // ErrNoToken means no GitHub token was found in the environment or the gh CLI.

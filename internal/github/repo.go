@@ -55,9 +55,48 @@ type Repo struct {
 	Issues        []Issue   `json:"issues"`
 	Releases      []Release `json:"releases"`
 	OpenPRs       []OpenPR  `json:"openPRs,omitempty"`
-	Branch        string    `json:"branch,omitempty"` // the default branch
-	CI            string    `json:"ci,omitempty"`     // statusCheckRollup state of its latest commit
+	Branch        string    `json:"branch,omitempty"`  // the default branch
+	CI            string    `json:"ci,omitempty"`      // statusCheckRollup state of its latest commit
+	Totals        *Totals   `json:"totals,omitempty"`  // GitHub's counts; nil in caches from before v0.8
+	History       string    `json:"history,omitempty"` // "recent" when only recent history was fetched
 	FetchedAt     time.Time `json:"fetchedAt"`
+}
+
+// Totals are GitHub's counts for a repo's whole history.
+type Totals struct {
+	Commits    int `json:"commits"` // on the default branch
+	Merged     int `json:"merged"`  // merged PRs
+	Releases   int `json:"releases"`
+	OpenIssues int `json:"openIssues"`
+}
+
+// HistoryMode is how much of each repo's history Sync fetches.
+type HistoryMode int
+
+const (
+	FullHistory   HistoryMode = iota // everything, as far as the page caps reach
+	RecentHistory                    // the totals, and the last RecentWindow in detail
+)
+
+// RecentWindow is how far back RecentHistory fetches commits, merged PRs
+// and closed issues.
+const RecentWindow = 90 * 24 * time.Hour
+
+// recentReleases is how many of the newest releases RecentHistory fetches,
+// whatever their age.
+const recentReleases = 10
+
+// Complete reports whether r holds its whole history rather than only the
+// recent part. Caches from before v0.8 always fetched everything.
+func (r *Repo) Complete() bool { return r.History != "recent" }
+
+// GardenTotals are r's totals as a plant grows from them; zero when GitHub's
+// counts are unknown, and the plant counts its events instead.
+func (r *Repo) GardenTotals() garden.Totals {
+	if r.Totals == nil {
+		return garden.Totals{}
+	}
+	return garden.Totals{Pushes: r.Totals.Commits, Merges: r.Totals.Merged, Releases: r.Totals.Releases, OpenIssues: r.Totals.OpenIssues}
 }
 
 func (r *Repo) Name() string {

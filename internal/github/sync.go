@@ -24,15 +24,15 @@ type pageInfo struct {
 }
 
 // commitsSince fetches default-branch commits newer than since (all of them
-// when since is zero), newest first.
-func (c *Client) commitsSince(ctx context.Context, owner, name string, since time.Time) ([]Commit, error) {
+// when since is zero), newest first, in at most pages pages of 100.
+func (c *Client) commitsSince(ctx context.Context, owner, name string, since time.Time, pages int) ([]Commit, error) {
 	q := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp){repository(owner:$owner,name:$name){defaultBranchRef{target{... on Commit{history(first:100,after:$after,since:$since){pageInfo{hasNextPage endCursor} nodes{committedDate messageHeadline authors(first:3){nodes{name email user{login}}}}}}}}}}`
 	vars := map[string]any{"owner": owner, "name": name, "after": nil, "since": nil}
 	if !since.IsZero() {
 		vars["since"] = since.Add(time.Second).UTC().Format(time.RFC3339)
 	}
 	var all []Commit
-	for page := 0; page < maxCommitPages; page++ {
+	for page := 0; page < pages; page++ {
 		var out struct {
 			Repository struct {
 				DefaultBranchRef *struct {
@@ -71,11 +71,19 @@ func (c *Client) commitsSince(ctx context.Context, owner, name string, since tim
 // connection pages through a repository connection that supports
 // orderBy CREATED_AT, oldest first. args are extra connection arguments.
 func connection[T any](ctx context.Context, c *Client, owner, name, field, args, nodeFields string) ([]T, error) {
-	q := fmt.Sprintf(`query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){conn: %s(first:100,after:$after,orderBy:{field:CREATED_AT,direction:ASC}%s){pageInfo{hasNextPage endCursor} nodes{%s}}}}`,
-		field, args, nodeFields)
+	return pages[T](ctx, c, owner, name, field, args+",orderBy:{field:CREATED_AT,direction:ASC}", nodeFields, 100, maxOtherPages, nil)
+}
+
+// pages pages through a repository connection, first nodes a page and at
+// most max pages. args are its arguments, orderBy included. A non-nil keep
+// ends it at the first node it rejects: the connection is ordered so that
+// every node after that one is unwanted too.
+func pages[T any](ctx context.Context, c *Client, owner, name, field, args, nodeFields string, first, max int, keep func(T) bool) ([]T, error) {
+	q := fmt.Sprintf(`query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){conn: %s(first:%d,after:$after%s){pageInfo{hasNextPage endCursor} nodes{%s}}}}`,
+		field, first, args, nodeFields)
 	vars := map[string]any{"owner": owner, "name": name, "after": nil}
 	var all []T
-	for page := 0; page < maxOtherPages; page++ {
+	for page := 0; page < max; page++ {
 		var out struct {
 			Repository struct {
 				Conn struct {
@@ -87,7 +95,12 @@ func connection[T any](ctx context.Context, c *Client, owner, name, field, args,
 		if err := c.query(ctx, q, vars, &out); err != nil {
 			return nil, err
 		}
-		all = append(all, out.Repository.Conn.Nodes...)
+		for _, n := range out.Repository.Conn.Nodes {
+			if keep != nil && !keep(n) {
+				return all, nil
+			}
+			all = append(all, n)
+		}
 		if !out.Repository.Conn.PageInfo.HasNextPage {
 			break
 		}
@@ -96,43 +109,125 @@ func connection[T any](ctx context.Context, c *Client, owner, name, field, args,
 	return all, nil
 }
 
-// fetch fills in r's history. Commits are fetched incrementally on top of
-// cached ones; PRs, issues and releases are small enough to refetch whole,
-// which also picks up issues closed since last time.
+// totals fetches GitHub's counts for a repo's whole history.
+func (c *Client) totals(ctx context.Context, owner, name string) (*Totals, error) {
+	q := `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{target{... on Commit{history{totalCount}}}} merged: pullRequests(states:MERGED){totalCount} releases{totalCount} openIssues: issues(states:OPEN){totalCount}}}`
+	type count struct{ TotalCount int }
+	var out struct {
+		Repository struct {
+			DefaultBranchRef *struct {
+				Target struct{ History count }
+			}
+			Merged, Releases, OpenIssues count
+		}
+	}
+	if err := c.query(ctx, q, map[string]any{"owner": owner, "name": name}, &out); err != nil {
+		return nil, err
+	}
+	rep := out.Repository
+	t := &Totals{Merged: rep.Merged.TotalCount, Releases: rep.Releases.TotalCount, OpenIssues: rep.OpenIssues.TotalCount}
+	if rep.DefaultBranchRef != nil {
+		t.Commits = rep.DefaultBranchRef.Target.History.TotalCount
+	}
+	return t, nil
+}
+
+// fetch fills in r's totals and history. Commits are fetched incrementally
+// on top of cached ones. With FullHistory, PRs, issues and releases are
+// refetched whole, which also picks up issues closed since last time; with
+// RecentHistory only the recent ones are, newest first.
 func (c *Client) fetch(ctx context.Context, r *Repo, cached *Repo) error {
 	owner, name, _ := strings.Cut(r.NameWithOwner, "/")
+	recent := c.History == RecentHistory
+	cutoff := time.Now().Add(-RecentWindow)
 
+	totals, err := c.totals(ctx, owner, name)
+	if err != nil {
+		return fmt.Errorf("totals: %w", err)
+	}
+	r.Totals = totals
+
+	complete := !recent
 	var since time.Time
-	if cached != nil {
-		r.Commits = cached.Commits
+	if cached != nil && (recent || cached.Complete()) { // full history can't build on a recent cache
+		r.Commits, complete = cached.Commits, cached.Complete()
 		for _, cm := range cached.Commits {
 			if cm.At.After(since) {
 				since = cm.At
 			}
 		}
 	}
-	newer, err := c.commitsSince(ctx, owner, name, since)
+	if since.IsZero() && recent {
+		since = cutoff
+	}
+	newer, err := c.commitsSince(ctx, owner, name, since, maxCommitPages)
 	if err != nil {
 		return fmt.Errorf("commits: %w", err)
 	}
 	r.Commits = append(r.Commits, newer...)
+	if recent && len(r.Commits) == 0 { // a quiet repo: its newest commits still tell when it was tended
+		if r.Commits, err = c.commitsSince(ctx, owner, name, time.Time{}, 1); err != nil {
+			return fmt.Errorf("commits: %w", err)
+		}
+	}
+	r.History = "full"
+	if !complete {
+		r.History = "recent"
+	}
 
-	prs, err := connection[PR](ctx, c, owner, name, "pullRequests", ",states:MERGED", "number title mergedAt")
-	if err != nil {
-		return fmt.Errorf("pull requests: %w", err)
-	}
-	issues, err := connection[Issue](ctx, c, owner, name, "issues", "", "number title createdAt closedAt")
-	if err != nil {
-		return fmt.Errorf("issues: %w", err)
-	}
 	type releaseNode struct {
 		TagName   string
 		CreatedAt time.Time
 		IsDraft   bool
 	}
-	rels, err := connection[releaseNode](ctx, c, owner, name, "releases", "", "tagName createdAt isDraft")
-	if err != nil {
-		return fmt.Errorf("releases: %w", err)
+	var prs []PR
+	var issues []Issue
+	var rels []releaseNode
+	if recent {
+		type prNode struct {
+			PR
+			UpdatedAt time.Time
+		}
+		var nodes []prNode
+		nodes, err = pages(ctx, c, owner, name, "pullRequests", ",states:MERGED,orderBy:{field:UPDATED_AT,direction:DESC}",
+			"number title mergedAt updatedAt", 100, maxOtherPages, func(n prNode) bool { return !n.UpdatedAt.Before(cutoff) })
+		if err != nil {
+			return fmt.Errorf("pull requests: %w", err)
+		}
+		for _, n := range nodes {
+			if !n.MergedAt.Before(cutoff) {
+				prs = append(prs, n.PR)
+			}
+		}
+		if issues, err = pages[Issue](ctx, c, owner, name, "issues", ",states:OPEN,orderBy:{field:CREATED_AT,direction:DESC}",
+			"number title createdAt closedAt", 100, 1, nil); err != nil {
+			return fmt.Errorf("issues: %w", err)
+		}
+		closed, err := pages[Issue](ctx, c, owner, name, "issues",
+			fmt.Sprintf(",states:CLOSED,filterBy:{since:%q},orderBy:{field:UPDATED_AT,direction:DESC}", cutoff.UTC().Format(time.RFC3339)),
+			"number title createdAt closedAt", 100, maxOtherPages, nil)
+		if err != nil {
+			return fmt.Errorf("issues: %w", err)
+		}
+		for _, is := range closed {
+			if is.ClosedAt != nil && !is.ClosedAt.Before(cutoff) {
+				issues = append(issues, is)
+			}
+		}
+		if rels, err = pages[releaseNode](ctx, c, owner, name, "releases", ",orderBy:{field:CREATED_AT,direction:DESC}",
+			"tagName createdAt isDraft", recentReleases, 1, nil); err != nil {
+			return fmt.Errorf("releases: %w", err)
+		}
+	} else {
+		if prs, err = connection[PR](ctx, c, owner, name, "pullRequests", ",states:MERGED", "number title mergedAt"); err != nil {
+			return fmt.Errorf("pull requests: %w", err)
+		}
+		if issues, err = connection[Issue](ctx, c, owner, name, "issues", "", "number title createdAt closedAt"); err != nil {
+			return fmt.Errorf("issues: %w", err)
+		}
+		if rels, err = connection[releaseNode](ctx, c, owner, name, "releases", "", "tagName createdAt isDraft"); err != nil {
+			return fmt.Errorf("releases: %w", err)
+		}
 	}
 	r.PRs, r.Issues, r.Releases = prs, issues, nil
 	for _, rel := range rels {
@@ -224,9 +319,10 @@ func Sync(ctx context.Context, c *Client, s *Store, metas []*Repo, ttl time.Dura
 	for i, m := range metas {
 		report(i, m.NameWithOwner)
 		cached := s.Repos[m.NameWithOwner]
-		if cached != nil && time.Since(cached.FetchedAt) < ttl {
+		if cached != nil && time.Since(cached.FetchedAt) < ttl && (cached.Complete() || c == nil || c.History == RecentHistory) {
 			m.Commits, m.PRs, m.Issues, m.Releases, m.FetchedAt = cached.Commits, cached.PRs, cached.Issues, cached.Releases, cached.FetchedAt
 			m.OpenPRs, m.Branch, m.CI = cached.OpenPRs, cached.Branch, cached.CI
+			m.Totals, m.History = cached.Totals, cached.History
 			s.Repos[m.NameWithOwner] = m
 			out = append(out, m)
 			continue
